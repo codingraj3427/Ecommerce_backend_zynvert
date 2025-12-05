@@ -1,27 +1,53 @@
 const User = require('../models/postgres/User');
 
-// 1. Sync User (Call this immediately after Firebase Login on Frontend)
+// 1. Sync User (Call this immediately after Firebase Login/Register on Frontend)
 exports.syncUser = async (req, res) => {
-  const { uid, email, name } = req.user; // From Middleware
-  const [firstName, ...lastNameParts] = (name || '').split(' ');
-  const lastName = lastNameParts.join(' ');
+  // Data from Firebase Middleware (Token)
+  const { uid, email, name: tokenName } = req.user;
+  
+  // Data from Client Request Body (For Registration forms)
+  // We extract firstName, lastName, phone from the request body
+  const { firstName, lastName, phone } = req.body;
+
+  // Logic: Use Body data if available (Manual Register), fallback to Token data (Google Login)
+  let finalFirstName = firstName;
+  let finalLastName = lastName;
+  let finalPhone = phone || req.user.phone_number || null;
+
+  // If manual names aren't provided, try to parse the Firebase display name (e.g. from Google)
+  if (!finalFirstName && tokenName) {
+    const parts = tokenName.split(' ');
+    finalFirstName = parts[0];
+    finalLastName = parts.slice(1).join(' ');
+  }
 
   try {
-    // Upsert: Create if not exists, otherwise do nothing (or update)
+    // Upsert: Create if not exists, otherwise update
     const [user, created] = await User.findOrCreate({
       where: { user_id: uid },
       defaults: {
         email,
-        first_name: firstName,
-        last_name: lastName,
+        first_name: finalFirstName || '', 
+        last_name: finalLastName || '',   
+        phone_number: finalPhone
       },
     });
 
+    // If user already existed, update fields if they are explicitly provided in this request
+    // This handles the case where a user might "complete their profile" later
+    if (!created && (firstName || lastName || phone)) {
+      if (firstName) user.first_name = firstName;
+      if (lastName) user.last_name = lastName;
+      if (phone) user.phone_number = phone;
+      await user.save();
+    }
+
     res.status(200).json({ 
-      message: created ? 'User registered' : 'User logged in', 
+      message: created ? 'User registered successfully' : 'User logged in successfully', 
       user 
     });
   } catch (error) {
+    console.error("Sync Error:", error);
     res.status(500).json({ message: 'Database sync failed', error: error.message });
   }
 };
