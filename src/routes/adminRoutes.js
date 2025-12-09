@@ -1,69 +1,101 @@
+// src/routes/adminRoutes.js
 const express = require('express');
 const router = express.Router();
 const adminController = require('../controllers/adminController');
 const verifyToken = require('../middlewares/authMiddleware');
 const verifyAdmin = require('../middlewares/adminMiddleware');
+const auditLogger = require('../middlewares/auditLogMiddleware');
+const adminAnalyticsController = require('../controllers/adminAnalyticsController');
 
-// 🔒 GLOBAL PROTECTION:
-// All routes in this file require:
-// 1. A valid Firebase Token (verifyToken)
-// 2. The user's 'is_admin' flag to be TRUE in Postgres (verifyAdmin)
+// All admin routes need: valid Firebase token + is_admin = true
 router.use(verifyToken, verifyAdmin);
 
-// ==========================================
-// 📦 PRODUCT & INVENTORY MANAGEMENT
-// ==========================================
+// ==========================
+// PRODUCT & INVENTORY
+// ==========================
 
-/**
- * @route   POST /api/admin/products
- * @desc    Create a new product (Syncs MongoDB Catalog + PostgreSQL Inventory)
- */
-router.post('/products', adminController.createProduct);
+// Create product (Postgres + Mongo)
+router.post(
+  '/products',
+  auditLogger('CREATE_PRODUCT'),
+  adminController.createProduct
+);
 
-/**
- * @route   PUT /api/admin/products/:id
- * @desc    Update Product Details (MongoDB only - Name, Desc, Images, Specs)
- */
-router.put('/products/:id', adminController.updateProductDetails);
+// List all products (with inventory)
+router.get('/products', adminController.getAllProducts);
 
-/**
- * @route   PUT /api/admin/inventory/:productId
- * @desc    Update Stock Level & Price (PostgreSQL only)
- */
-router.put('/inventory/:productId', adminController.updateInventory);
+// Get single product with inventory
+router.get('/products/:id', adminController.getProductById);
 
-/**
- * @route   DELETE /api/admin/products/:id
- * @desc    Delete a product completely (Removes from both DBs)
- */
-router.delete('/products/:id', adminController.deleteProduct);
+// Update product details (Mongo only or combined as you implemented)
+router.put(
+  '/products/:id',
+  auditLogger('UPDATE_PRODUCT'),
+  adminController.updateProductDetails
+);
 
+// Delete product
+router.delete(
+  '/products/:id',
+  auditLogger('DELETE_PRODUCT'),
+  adminController.deleteProduct
+);
 
-// ==========================================
-// 🚚 ORDER MANAGEMENT
-// ==========================================
+// ==========================
+// ORDERS
+// ==========================
 
-/**
- * @route   GET /api/admin/orders
- * @desc    Get all orders (with User details)
- */
 router.get('/orders', adminController.getAllOrders);
+router.get('/orders/:id', adminController.getOrderById);
 
-/**
- * @route   PUT /api/admin/orders/:id/status
- * @desc    Update Order Status (e.g., mark as 'Shipped' with tracking number)
- */
-router.put('/orders/:id/status', adminController.updateOrderStatus);
+router.put(
+  '/orders/:id/status',
+  auditLogger('UPDATE_ORDER_STATUS'),
+  adminController.updateOrderStatus
+);
 
 
-// ==========================================
-// 👥 USER MANAGEMENT
-// ==========================================
+// ==========================
+// CUSTOMERS
+// ==========================
 
-/**
- * @route   GET /api/admin/customers
- * @desc    Get list of all registered customers
- */
 router.get('/customers', adminController.getAllCustomers);
+
+// ==========================
+// CATEGORIES (Mongo)
+// ==========================
+
+router.post(
+  '/categories',
+  auditLogger('CREATE_CATEGORY'),
+  adminController.createCategory
+);
+router.get('/categories', adminController.getAllCategories);
+router.put(
+  '/categories/:id',
+  auditLogger('UPDATE_CATEGORY'),
+  adminController.updateCategory
+);
+router.delete(
+  '/categories/:id',
+  auditLogger('DELETE_CATEGORY'),
+  adminController.deleteCategory
+);
+
+// ==========================
+// ANALYTICS & REVENUE
+// ==========================
+
+// High-level stats (revenue, orders, customers, AOV)
+router.get('/analytics/overview', adminAnalyticsController.getOverviewStats);
+
+// Revenue and orders grouped by day (for charts)
+router.get('/analytics/revenue-by-day', adminAnalyticsController.getRevenueByDay);
+
+// Top products by revenue / quantity
+router.get('/analytics/top-products', adminAnalyticsController.getTopProducts);
+
+// Top customers by spend (optional)
+router.get('/analytics/top-customers', adminAnalyticsController.getTopCustomers);
 
 module.exports = router;

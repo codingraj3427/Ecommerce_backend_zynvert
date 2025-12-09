@@ -52,6 +52,14 @@ const productSchema = new mongoose.Schema(
       type: String, 
       required: true 
     }, // Main marketing description
+
+     stock_level: {
+      type: Number,
+      required: true,
+      default: 0,
+      min: 0,
+    }, // Mirrors the stock from PostgreSQL inventory
+
     
     price_display: { 
       type: Number, 

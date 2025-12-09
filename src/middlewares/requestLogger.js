@@ -1,33 +1,37 @@
-module.exports = (req, res, next) => {
-  try {
-    const { method, originalUrl } = req;
-    const params = req.params || {};
-    const query = req.query || {};
-    const body = req.body || {};
+// src/middlewares/requestLogger.js
 
-    const hasParams = Object.keys(params).length > 0;
-    const hasQuery = Object.keys(query).length > 0;
-    const hasBody = Object.keys(body).length > 0;
+/**
+ * Middleware to log incoming requests.
+ * Logs method, URL, timestamp, and duration for every API call.
+ */
+const requestLogger = (req, res, next) => {
+  const start = process.hrtime();
+  const timestamp = new Date().toISOString();
 
-    if (hasParams || hasQuery || hasBody) {
-      // Redact Authorization header if present
-      const headers = { ...(req.headers || {}) };
-      if (headers.authorization) {
-        headers.authorization = headers.authorization.replace(/(Bearer\s+)(.+)/i, '$1[REDACTED]');
-      }
+  // Log request details when it arrives
+  console.log(`[${timestamp}] Incoming Request: ${req.method} ${req.originalUrl}`);
 
-      console.log(`📥 [Request Logger] ${new Date().toISOString()} ${method} ${originalUrl}`);
-      if (hasParams) console.log('  params:', JSON.stringify(params));
-      if (hasQuery)  console.log('  query: ', JSON.stringify(query));
-      if (hasBody)   console.log('  body:  ', JSON.stringify(body));
-      console.log('  headers (partial):', JSON.stringify({
-        authorization: headers.authorization,
-        'content-type': headers['content-type']
-      }));
-    }
-  } catch (err) {
-    console.error('Request Logger Error:', err);
-  } finally {
-    next();
-  }
+  // Attach a listener to log response details when the request is finished
+  res.on('finish', () => {
+    const diff = process.hrtime(start);
+    const durationInMilliseconds = diff[0] * 1000 + diff[1] / 1e6;
+
+    const logData = {
+      timestamp,
+      method: req.method,
+      url: req.originalUrl,
+      status: res.statusCode,
+      duration: `${durationInMilliseconds.toFixed(2)}ms`,
+      ip: req.ip || req.headers['x-forwarded-for'],
+      userAgent: req.get('User-Agent'),
+    };
+
+    console.log(
+      `[${logData.timestamp}] Response Sent: ${logData.method} ${logData.url} | Status: ${logData.status} | Duration: ${logData.duration}`
+    );
+  });
+
+  next();
 };
+
+module.exports = requestLogger;
