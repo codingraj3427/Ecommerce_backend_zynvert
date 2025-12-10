@@ -9,7 +9,7 @@ exports.getCategories = async (req, res) => {
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
-};
+}
 
 // Get Featured Products
 exports.getFeaturedProducts = async (req, res) => {
@@ -31,3 +31,4 @@ exports.getProductById = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+

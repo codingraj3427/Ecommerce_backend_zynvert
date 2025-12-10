@@ -792,3 +792,97 @@ exports.getTopCustomers = async (req, res) => {
   }
 };
 
+// Upload a single product image (Cloudinary via multer) and return URL
+exports.uploadProductImage = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: "No file uploaded" });
+    }
+
+    // multer-storage-cloudinary puts the Cloudinary URL here
+    const imageUrl = req.file.path; // e.g. https://res.cloudinary.com/.../image/upload/....
+
+    return res.status(201).json({ url: imageUrl });
+  } catch (error) {
+    console.error("uploadProductImage error:", error);
+    return res
+      .status(500)
+      .json({ message: error.message || "Failed to upload image" });
+  }
+};
+// Helper: extract Cloudinary public_id (with folder) from URL
+function extractCloudinaryPublicId(imageUrl) {
+  try {
+    const url = new URL(imageUrl);
+    const parts = url.pathname.split("/");
+
+    // path looks like: /<cloud_name>/image/upload/v123456789/products/abc123.jpg
+    const uploadIndex = parts.findIndex((p) => p === "upload");
+    if (uploadIndex === -1) {
+      // fallback: just last part without extension
+      const last = parts[parts.length - 1]; // filename.ext
+      return last.split(".").slice(0, -1).join(".");
+    }
+
+    // everything after "upload/" is folder + file
+    const publicIdParts = parts.slice(uploadIndex + 1);
+    const last = publicIdParts[publicIdParts.length - 1];
+
+    // remove extension from final segment
+    publicIdParts[publicIdParts.length - 1] = last
+      .split(".")
+      .slice(0, -1)
+      .join(".");
+
+    return publicIdParts.join("/"); // e.g. "products/abc123"
+  } catch (err) {
+    console.error("Failed to parse Cloudinary public_id from URL:", err);
+    return null;
+  }
+}
+
+// DELETE /admin/products/:productId/images
+exports.deleteProductImage = async (req, res) => {
+  const { productId } = req.params;
+  const { imageUrl } = req.body;
+
+  if (!imageUrl) {
+    return res.status(400).json({ message: "imageUrl is required" });
+  }
+
+  try {
+    // 1) delete from Cloudinary
+    const publicId = extractCloudinaryPublicId(imageUrl);
+
+    if (publicId) {
+      await cloudinary.uploader.destroy(publicId);
+    } else {
+      console.warn("No publicId parsed for imageUrl:", imageUrl);
+    }
+
+    // 2) remove URL from product document
+    const product = await Product.findOneAndUpdate(
+      { product_id: productId }, // you’re using product_id like "prod_..."
+      { $pull: { images: imageUrl } },
+      { new: true }
+    );
+
+    if (!product) {
+      return res.status(404).json({ message: "Product not found" });
+    }
+
+    return res.json({
+      message: "Image deleted",
+      product,
+    });
+  } catch (err) {
+    console.error("deleteProductImage error:", err);
+    return res
+      .status(500)
+      .json({ message: err.message || "Failed to delete image" });
+  }
+};
+
+
+
+

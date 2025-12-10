@@ -6,6 +6,7 @@ const verifyToken = require('../middlewares/authMiddleware');
 const verifyAdmin = require('../middlewares/adminMiddleware');
 const auditLogger = require('../middlewares/auditLogMiddleware');
 const adminAnalyticsController = require('../controllers/adminAnalyticsController');
+const upload = require("../middlewares/upload");
 
 // All admin routes need: valid Firebase token + is_admin = true
 router.use(verifyToken, verifyAdmin);
@@ -97,5 +98,21 @@ router.get('/analytics/top-products', adminAnalyticsController.getTopProducts);
 
 // Top customers by spend (optional)
 router.get('/analytics/top-customers', adminAnalyticsController.getTopCustomers);
+
+//Uplaod Image Route is here
+// Upload a single product image to Cloudinary and return its URL
+router.post(
+  "/products/upload-image",
+  upload.single("image"),
+  adminController.uploadProductImage
+);
+
+// Delete a single product image (Cloudinary + Mongo)
+router.delete(
+  "/products/:productId/images",
+  adminController.deleteProductImage
+);
+
+
 
 module.exports = router;
