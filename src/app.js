@@ -8,6 +8,8 @@ const orderRoutes = require('./routes/orderRoutes');
 // In src/app.js (or equivalent):
 const profileRoutes = require('./routes/profileRoutes');
 const adminRoutes = require('./routes/adminRoutes'); // Uncomment when ready
+const cartRoutes = require('./routes/cartRoutes');
+const paymentRoutes = require("./routes/paymentRoute");
 
 
 const requestLogger = require('./middlewares/requestLogger');
@@ -36,6 +38,8 @@ app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/profile', profileRoutes);
+app.use('/api/cart', cartRoutes);
+app.use("/api/payments", paymentRoutes);
 
 app.use('/api/admin', adminRoutes); // Uncomment when ready
 

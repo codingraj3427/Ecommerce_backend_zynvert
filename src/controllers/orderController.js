@@ -1,95 +1,73 @@
-const { sequelize } = require('../config/db.postgres');
 const { Order, OrderItem, Inventory, Payment } = require('../models/postgres/index');
-const razorpayService = require('../services/razorpayService');
 
-// 1. Initiate Checkout (Create Order + Razorpay ID)
-exports.createOrder = async (req, res) => {
-  const { items, shippingAddress } = req.body; // items: [{ product_id, quantity }]
-  const userId = req.user.uid; // From Auth Middleware
-
-  const t = await sequelize.transaction(); // Start Postgres Transaction
-
+/* ============================================================
+   1. GET MY ORDERS (For User Account Page)
+   - Fetches all orders for the logged-in user
+   - Sorts by newest first
+   ============================================================ */
+exports.getMyOrders = async (req, res) => {
   try {
-    let totalAmount = 0;
-    
-    // Calculate total & Check Stock (Critical Step)
-    for (const item of items) {
-      const product = await Inventory.findOne({ where: { product_id: item.product_id } });
-      if (!product || product.stock_level < item.quantity) {
-        throw new Error(`Product ${item.product_id} is out of stock`);
-      }
-      totalAmount += parseFloat(product.current_price) * item.quantity;
-    }
+    const userId = req.user.uid; // From Auth Middleware
 
-    // Create Razorpay Order
-    const rzpOrder = await razorpayService.createRazorpayOrder(totalAmount);
-
-    // Create Pending Order in Postgres
-    const newOrder = await Order.create({
-      user_id: userId,
-      shipping_name: shippingAddress.full_name,
-      shipping_line1: shippingAddress.line1,
-      shipping_city: shippingAddress.city,
-      shipping_pincode: shippingAddress.pincode,
-      total_amount: totalAmount,
-      status: 'Pending Payment'
-    }, { transaction: t });
-
-    // Store Razorpay Order ID reference
-    await Payment.create({
-      order_id: newOrder.order_id,
-      razorpay_order_id: rzpOrder.id,
-      amount: totalAmount,
-      status: 'Created'
-    }, { transaction: t });
-
-    await t.commit(); // Commit the Pending Order
-    
-    res.json({ 
-      orderId: newOrder.order_id, 
-      razorpayOrderId: rzpOrder.id, 
-      amount: totalAmount,
-      currency: rzpOrder.currency 
+    const orders = await Order.findAll({
+      where: { user_id: userId },
+      order: [['createdAt', 'DESC']], // Newest first
+      include: [
+        {
+          model: OrderItem,
+          // Optional: Include product details if you want to show images in the list
+          // include: [{ model: Inventory, attributes: ['sku'] }] 
+        }
+      ]
     });
 
+    res.json(orders);
   } catch (error) {
-    await t.rollback();
-    res.status(500).json({ message: error.message });
+    console.error("Get My Orders Error:", error);
+    res.status(500).json({ message: "Failed to fetch orders" });
   }
 };
 
-// 2. Verify Payment & Confirm Order
-exports.verifyPayment = async (req, res) => {
-  const { razorpayOrderId, razorpayPaymentId, signature, orderId } = req.body;
-
-  const isValid = razorpayService.verifySignature(razorpayOrderId, razorpayPaymentId, signature);
-
-  if (!isValid) {
-    return res.status(400).json({ message: 'Invalid Signature' });
-  }
-
-  const t = await sequelize.transaction();
-
+/* ============================================================
+   2. GET ORDER DETAILS (For Order Success / Details Page)
+   - Fetches a specific order by ID
+   - Security: Ensures the order belongs to the requesting user
+   ============================================================ */
+exports.getOrderById = async (req, res) => {
   try {
-    // Update Payment Status
-    await Payment.update(
-      { status: 'Success', razorpay_payment_id: razorpayPaymentId },
-      { where: { razorpay_order_id: razorpayOrderId }, transaction: t }
-    );
+    const userId = req.user.uid;
+    const { id } = req.params;
 
-    // Update Order Status
-    await Order.update(
-      { status: 'Paid' },
-      { where: { order_id: orderId }, transaction: t }
-    );
+    const order = await Order.findOne({
+      where: { 
+        order_id: id,
+        user_id: userId // 🔒 Security: User can only see their own orders
+      },
+      include: [
+        {
+          model: OrderItem,
+          include: [{ 
+            model: Inventory,
+            attributes: ['product_id', 'sku', 'current_price'] // Fetch SKU/Price for display
+          }]
+        }
+      ]
+    });
 
-    // TODO: Deduct Stock Logic Here (Loop through items and decrement Inventory)
+    if (!order) {
+      return res.status(404).json({ message: "Order not found" });
+    }
 
-    await t.commit();
-    res.json({ message: 'Payment Verified, Order Placed!' });
-
+    res.json(order);
   } catch (error) {
-    await t.rollback();
-    res.status(500).json({ message: error.message });
+    console.error("Get Order Details Error:", error);
+    res.status(500).json({ message: "Failed to fetch order details" });
   }
 };
+
+/* NOTE: 
+   The 'createOrder' and 'verifyPayment' functions are NO LONGER NEEDED here.
+   
+   - Order Creation is now handled in `paymentController.createCheckoutSession`.
+   - Payment Confirmation is now handled in `paymentController.confirmPayment`.
+*/

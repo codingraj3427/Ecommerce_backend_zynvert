@@ -272,16 +272,29 @@ exports.deleteProduct = async (req, res) => {
 
 
 // 5. Get All Orders
+// 5. Get All Orders (✅ FIXED)
 exports.getAllOrders = async (req, res) => {
   try {
     const orders = await Order.findAll({
-      order: [['created_at', 'DESC']],
+      // ✅ FIX 1: Change 'created_at' to 'createdAt'
+      order: [['createdAt', 'DESC']], 
+      
       include: [
-        { model: User, attributes: ['email', 'first_name', 'last_name'] }
+        { 
+          model: User, 
+          attributes: ['email', 'first_name', 'last_name'] 
+        },
+        // ✅ FIX 2: Include Items so you can see WHAT they ordered
+        {
+          model: OrderItem,
+          // Optional: Include Inventory/Product info if you need SKU/Names
+          // include: [{ model: Inventory }] 
+        }
       ]
     });
     res.json(orders);
   } catch (error) {
+    console.error("Get All Orders Error:", error); // ✅ Log error to terminal
     res.status(500).json({ message: error.message });
   }
 };
@@ -811,30 +824,39 @@ exports.uploadProductImage = async (req, res) => {
   }
 };
 // Helper: extract Cloudinary public_id (with folder) from URL
+// Helper: extract Cloudinary public_id (with folder) from URL
 function extractCloudinaryPublicId(imageUrl) {
   try {
     const url = new URL(imageUrl);
     const parts = url.pathname.split("/");
 
-    // path looks like: /<cloud_name>/image/upload/v123456789/products/abc123.jpg
+    // Example:
+    // /dhbjxspxa/image/upload/v1765379586/products/qx1qsnjpuo5cstlry0yq.jpg
+    //            0    1      2      3             4        5
     const uploadIndex = parts.findIndex((p) => p === "upload");
     if (uploadIndex === -1) {
-      // fallback: just last part without extension
-      const last = parts[parts.length - 1]; // filename.ext
+      // fallback: filename without extension
+      const last = parts[parts.length - 1];
       return last.split(".").slice(0, -1).join(".");
     }
 
-    // everything after "upload/" is folder + file
-    const publicIdParts = parts.slice(uploadIndex + 1);
-    const last = publicIdParts[publicIdParts.length - 1];
+    // Everything after "upload"
+    let publicIdParts = parts.slice(uploadIndex + 1); // ["v1765...", "products", "file.jpg"]
 
-    // remove extension from final segment
+    // If first part looks like a version (v + digits), drop it
+    if (/^v\d+$/.test(publicIdParts[0])) {
+      publicIdParts = publicIdParts.slice(1); // ["products", "file.jpg"]
+    }
+
+    // Remove extension from last segment
+    const last = publicIdParts[publicIdParts.length - 1];
     publicIdParts[publicIdParts.length - 1] = last
       .split(".")
       .slice(0, -1)
       .join(".");
 
-    return publicIdParts.join("/"); // e.g. "products/abc123"
+    // -> "products/qx1qsnjpuo5cstlry0yq"
+    return publicIdParts.join("/");
   } catch (err) {
     console.error("Failed to parse Cloudinary public_id from URL:", err);
     return null;
@@ -851,21 +873,30 @@ exports.deleteProductImage = async (req, res) => {
   }
 
   try {
-    // 1) delete from Cloudinary
+    // 1) Delete from Cloudinary (best-effort)
     const publicId = extractCloudinaryPublicId(imageUrl);
-
     if (publicId) {
-      await cloudinary.uploader.destroy(publicId);
+      const cldRes = await cloudinary.uploader.destroy(publicId);
+      console.log("Cloudinary destroy result:", cldRes);
     } else {
       console.warn("No publicId parsed for imageUrl:", imageUrl);
     }
 
-    // 2) remove URL from product document
-    const product = await Product.findOneAndUpdate(
-      { product_id: productId }, // you’re using product_id like "prod_..."
+    // 2) Remove URL from product document
+    //    Try product_id first, then fallback to Mongo _id
+    let product = await Product.findOneAndUpdate(
+      { product_id: productId },
       { $pull: { images: imageUrl } },
       { new: true }
     );
+
+    if (!product) {
+      product = await Product.findOneAndUpdate(
+        { _id: productId },
+        { $pull: { images: imageUrl } },
+        { new: true }
+      );
+    }
 
     if (!product) {
       return res.status(404).json({ message: "Product not found" });

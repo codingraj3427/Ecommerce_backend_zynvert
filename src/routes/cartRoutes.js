@@ -1,24 +1,25 @@
 const express = require('express');
 const router = express.Router();
-const cartController = require('../controllers/cartController');
-const verifyToken = require('../middlewares/authMiddleware'); // Protected Routes
 
-// All cart operations require the user to be logged in
+const cartController = require('../controllers/cartController');
+const verifyToken = require('../middlewares/authMiddleware');
+
+// 🔐 Protect ALL cart routes
 router.use(verifyToken);
 
-// 1. Get the current user's cart
+// ✅ GET /api/cart
 router.get('/', cartController.getCart);
 
-// 2. Add an item to the cart (or update quantity if exists)
+// ✅ POST /api/cart/items
 router.post('/items', cartController.addToCart);
 
-// 3. Update item quantity (e.g., change from 1 to 2)
+// ✅ PUT /api/cart/items/:itemId
 router.put('/items/:itemId', cartController.updateCartItem);
 
-// 4. Remove an item from the cart
+// ✅ DELETE /api/cart/items/:itemId
 router.delete('/items/:itemId', cartController.removeCartItem);
 
-// 5. Clear the entire cart (e.g., after checkout)
+// ✅ DELETE /api/cart
 router.delete('/', cartController.clearCart);
 
 module.exports = router;

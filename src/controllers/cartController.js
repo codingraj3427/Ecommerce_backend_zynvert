@@ -65,7 +65,8 @@ exports.addToCart = async (req, res) => {
       await CartItem.create({
         cart_id: cart.cart_id,
         product_id: productId,
-        quantity: quantity
+        quantity: quantity,
+        image: req.body.image || null, // ✅ SAVE IMAGE
       });
     }
 
