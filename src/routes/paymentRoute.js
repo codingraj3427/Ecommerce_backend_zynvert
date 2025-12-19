@@ -10,7 +10,6 @@ router.post(
 );
 
 // ✅ Protect this route so req.user works
-router.post('/confirm', verifyToken, paymentController.confirmPayment);
-
+router.post("/confirm", verifyToken, paymentController.confirmPayment);
 
 module.exports = router;

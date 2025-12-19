@@ -1,6 +1,7 @@
 const Product = require('../models/mongo/Product');
 const Category = require('../models/mongo/Category');
 
+
 // Get all categories (for Homepage Cards)
 exports.getCategories = async (req, res) => {
   try {
@@ -52,6 +53,20 @@ exports.getProductsByDisplayFlag = async (req, res) => {
     res.status(500).json({
       message: "Failed to fetch products",
       error: error.message
+    });
+  }
+};
+
+exports.getAllProducts = async (req, res) => {
+  try {
+    const products = await Product.find({})
+      .sort({ createdAt: -1 }); // newest first
+
+    res.status(200).json(products);
+  } catch (error) {
+    console.error("Get all products error:", error);
+    res.status(500).json({
+      message: "Failed to fetch products",
     });
   }
 };
