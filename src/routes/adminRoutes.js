@@ -28,12 +28,24 @@ router.get('/products', adminController.getAllProducts);
 // Get single product with inventory
 router.get('/products/:id', adminController.getProductById);
 
+
 // Update product details (Mongo only or combined as you implemented)
 router.put(
   '/products/:id',
   auditLogger('UPDATE_PRODUCT'),
   adminController.updateProductDetails
 );
+
+
+// 🔥 INVENTORY UPDATE (Postgres + Mongo price sync)
+router.put(
+  '/inventory/:productId',
+  auditLogger('UPDATE_INVENTORY'),
+  adminController.updateInventory
+);
+
+
+
 
 // Delete product
 router.delete(
@@ -54,6 +66,9 @@ router.put(
   auditLogger('UPDATE_ORDER_STATUS'),
   adminController.updateOrderStatus
 );
+
+
+
 
 
 // ==========================

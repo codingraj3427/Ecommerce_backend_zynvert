@@ -27,6 +27,7 @@ const reviewSchema = new mongoose.Schema({
   }, // Date of the review
 });
 
+
 const productSchema = new mongoose.Schema(
   {
     product_id: { 
@@ -65,7 +66,14 @@ const productSchema = new mongoose.Schema(
       type: Number, 
       required: true 
     }, // Cosmetic price for display only. (Actual transactional price is in Postgres)
-    
+
+
+    old_price: {
+    type: Number,
+    default: 0,
+    min: 0,
+    },
+
     images: [{ 
       type: String, 
       required: true 
@@ -89,6 +97,18 @@ const productSchema = new mongoose.Schema(
     timestamps: true, // Automatically adds createdAt and updatedAt fields
   }
 );
+
+/* ======================================
+   🔥 AUTO PRICE HISTORY HANDLER
+   When price_display changes:
+   → move old value to old_price
+====================================== */
+productSchema.pre("save", async function () {
+  if (this.isModified("price_display") && !this.isNew) {
+    this.old_price = this.old_price || this.$__.priorDoc?.price_display || 0;
+  }
+});
+
 
 const Product = mongoose.model('Product', productSchema);
 

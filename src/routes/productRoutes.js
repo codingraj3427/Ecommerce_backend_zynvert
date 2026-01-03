@@ -7,5 +7,6 @@ router.get("/categories", productController.getCategories);
 router.get("/featured", productController.getFeaturedProducts);
 router.get("/:id", productController.getProductById);
 router.get("/display/:flag", productController.getProductsByDisplayFlag);
+router.get("/search", productController.searchProducts);
 
 module.exports = router;

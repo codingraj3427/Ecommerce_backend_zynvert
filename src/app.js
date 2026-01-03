@@ -40,8 +40,10 @@ app.use('/api/orders', orderRoutes);
 app.use('/api/profile', profileRoutes);
 app.use('/api/cart', cartRoutes);
 app.use("/api/payments", paymentRoutes);
-
 app.use('/api/admin', adminRoutes); // Uncomment when ready
+// ====================================================================
+// 2. ROUTES
+// ====================================================================
 
 // Root Route (Health Check)
 app.get('/', (req, res) => {

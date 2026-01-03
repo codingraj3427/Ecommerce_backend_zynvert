@@ -1,15 +1,19 @@
 // src/controllers/adminController.js
 
 // ✅ Get the REAL Sequelize instance from your config
-const { sequelize } = require('../config/db.postgres');
+const { sequelize } = require("../config/db.postgres");
 
 // ✅ Get helpers (Op, fn, col, literal) from the Sequelize library
-const { Op, fn, col, literal } = require('sequelize');
+const { Op, fn, col, literal } = require("sequelize");
 
-const { Inventory, Order, User, OrderItem } = require('../models/postgres/index');
-const Product = require('../models/mongo/Product');
-const Category = require('../models/mongo/Category');
-
+const {
+  Inventory,
+  Order,
+  User,
+  OrderItem,
+} = require("../models/postgres/index");
+const Product = require("../models/mongo/Product");
+const Category = require("../models/mongo/Category");
 
 // 1. Create Product (Polyglot Transaction)
 exports.createProduct = async (req, res) => {
@@ -22,7 +26,10 @@ exports.createProduct = async (req, res) => {
     console.error("Failed to start transaction:", error);
     return res
       .status(500)
-      .json({ message: "Failed to start DB transaction", error: error.message });
+      .json({
+        message: "Failed to start DB transaction",
+        error: error.message,
+      });
   }
 
   try {
@@ -42,19 +49,18 @@ exports.createProduct = async (req, res) => {
     } = req.body;
 
     // Normalize & validate category_id
-      if (!category_id) {
-        return res.status(400).json({ message: "category_id is required" });
-      }
+    if (!category_id) {
+      return res.status(400).json({ message: "category_id is required" });
+    }
 
-      category_id = String(category_id).trim();
+    category_id = String(category_id).trim();
 
-      const categoryDoc = await Category.findOne({ category_id });
-      if (!categoryDoc) {
-        return res.status(400).json({
-          message: `Invalid category_id: ${category_id}. Please select a valid category.`,
-        });
-      }
-
+    const categoryDoc = await Category.findOne({ category_id });
+    if (!categoryDoc) {
+      return res.status(400).json({
+        message: `Invalid category_id: ${category_id}. Please select a valid category.`,
+      });
+    }
 
     // ---------- Normalize / defaults so DB doesn't explode ----------
 
@@ -104,15 +110,15 @@ exports.createProduct = async (req, res) => {
     }
 
     // Display flags: ensure object with booleans
-   // Display flags: ensure array of strings, e.g. ['featured', 'home']
-if (!display_flags) {
-  display_flags = [];
-} else if (Array.isArray(display_flags)) {
-  display_flags = display_flags.map(String);
-} else {
-  // single value → wrap as array
-  display_flags = [String(display_flags)];
-}
+    // Display flags: ensure array of strings, e.g. ['featured', 'home']
+    if (!display_flags) {
+      display_flags = [];
+    } else if (Array.isArray(display_flags)) {
+      display_flags = display_flags.map(String);
+    } else {
+      // single value → wrap as array
+      display_flags = [String(display_flags)];
+    }
 
     // ---------- A. Create Inventory in Postgres ----------
     const inventoryRow = await Inventory.create(
@@ -160,50 +166,72 @@ if (!display_flags) {
   }
 };
 
-
 // 2. Update Product Details (Mongo Only)
 exports.updateProductDetails = async (req, res) => {
+  delete req.body.price_display;
+  delete req.body.old_price;
+  delete req.body.current_price;
+
   try {
     const { id } = req.params; // Expecting product_id (e.g., "prod_zynvert_100")
     const updateData = req.body;
 
     const updatedProduct = await Product.findOneAndUpdate(
-      { product_id: id }, 
-      updateData, 
+      { product_id: id },
+      updateData,
       { new: true }
     );
 
-    if (!updatedProduct) return res.status(404).json({ message: 'Product not found' });
+    if (!updatedProduct)
+      return res.status(404).json({ message: "Product not found" });
 
-    res.json({ message: 'Product details updated', product: updatedProduct });
+    res.json({ message: "Product details updated", product: updatedProduct });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
 
 // 3. Update Inventory (Postgres Only)
+// adminController.js
 exports.updateInventory = async (req, res) => {
   try {
     const { productId } = req.params;
     const { stock_level, current_price } = req.body;
 
-    const inventoryItem = await Inventory.findOne({ where: { product_id: productId } });
+    // 1️⃣ Update Postgres Inventory
+    const inventory = await Inventory.findOne({
+      where: { product_id: productId },
+    });
 
-    if (!inventoryItem) return res.status(404).json({ message: 'Inventory record not found' });
-
-    if (stock_level !== undefined) inventoryItem.stock_level = stock_level;
-    if (current_price !== undefined) inventoryItem.current_price = current_price;
-
-    await inventoryItem.save();
-
-    // Optional: Update cosmetic price in Mongo to match
-    if (current_price !== undefined) {
-      await Product.findOneAndUpdate({ product_id: productId }, { price_display: current_price });
+    if (!inventory) {
+      return res.status(404).json({ message: "Inventory not found" });
     }
 
-    res.json({ message: 'Inventory updated', inventory: inventoryItem });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
+    if (stock_level !== undefined) {
+      inventory.stock_level = Number(stock_level);
+    }
+
+    if (current_price !== undefined) {
+      inventory.current_price = Number(current_price);
+    }
+
+    await inventory.save();
+
+    // 2️⃣ Sync Mongo Product price
+    if (current_price !== undefined) {
+      const product = await Product.findOne({ product_id: productId });
+
+      if (product && product.price_display !== Number(current_price)) {
+        product.old_price = product.price_display; // store previous price
+        product.price_display = Number(current_price); // new price
+        await product.save();
+      }
+    }
+
+    res.json({ message: "Inventory updated successfully" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: err.message });
   }
 };
 
@@ -228,7 +256,7 @@ exports.deleteProduct = async (req, res) => {
           where: {
             status: {
               // ✅ use Op.notIn, not sequelize.Op.notIn
-              [Op.notIn]: ['DELIVERED', 'CANCELLED', 'RETURNED'],
+              [Op.notIn]: ["DELIVERED", "CANCELLED", "RETURNED"],
             },
           },
           required: true,
@@ -236,7 +264,7 @@ exports.deleteProduct = async (req, res) => {
       ],
       transaction: t,
     });
-
+    console.log(`Active orders count for product ${id}:`, activeOrdersCount);
     if (activeOrdersCount > 0) {
       await t.rollback();
       return res.status(400).json({
@@ -252,24 +280,25 @@ exports.deleteProduct = async (req, res) => {
 
     if (deletedCount === 0) {
       await t.rollback();
-      return res.status(404).json({ message: 'Product not found in inventory' });
+      return res
+        .status(404)
+        .json({ message: "Product not found in inventory" });
     }
 
     // 3. Delete from Mongo (Catalog)
     await Product.findOneAndDelete({ product_id: id });
 
     await t.commit();
-    return res.json({ message: 'Product deleted successfully' });
+    return res.json({ message: "Product deleted successfully" });
   } catch (error) {
-    console.error('deleteProduct error:', error);
+    console.error("deleteProduct error:", error);
     await t.rollback();
     return res.status(500).json({
-      message: 'Failed to delete product due to an internal error.',
+      message: "Failed to delete product due to an internal error.",
       error: error.message,
     });
   }
 };
-
 
 // 5. Get All Orders
 // 5. Get All Orders (✅ FIXED)
@@ -277,20 +306,20 @@ exports.getAllOrders = async (req, res) => {
   try {
     const orders = await Order.findAll({
       // ✅ FIX 1: Change 'created_at' to 'createdAt'
-      order: [['createdAt', 'DESC']], 
-      
+      order: [["createdAt", "DESC"]],
+
       include: [
-        { 
-          model: User, 
-          attributes: ['email', 'first_name', 'last_name'] 
+        {
+          model: User,
+          attributes: ["email", "first_name", "last_name"],
         },
         // ✅ FIX 2: Include Items so you can see WHAT they ordered
         {
           model: OrderItem,
           // Optional: Include Inventory/Product info if you need SKU/Names
-          // include: [{ model: Inventory }] 
-        }
-      ]
+          // include: [{ model: Inventory }]
+        },
+      ],
     });
     res.json(orders);
   } catch (error) {
@@ -306,7 +335,7 @@ exports.updateOrderStatus = async (req, res) => {
     const { status, tracking_number, carrier_name, tracking_url } = req.body;
 
     const order = await Order.findByPk(id);
-    if (!order) return res.status(404).json({ message: 'Order not found' });
+    if (!order) return res.status(404).json({ message: "Order not found" });
 
     order.status = status;
     if (tracking_number) order.tracking_number = tracking_number;
@@ -317,7 +346,7 @@ exports.updateOrderStatus = async (req, res) => {
 
     // TODO: Trigger Email Notification Service here
 
-    res.json({ message: 'Order status updated', order });
+    res.json({ message: "Order status updated", order });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -327,7 +356,7 @@ exports.updateOrderStatus = async (req, res) => {
 exports.getAllCustomers = async (req, res) => {
   try {
     const customers = await User.findAll({
-      attributes: { exclude: ['is_admin'] } // Don't verify admins here
+      attributes: { exclude: ["is_admin"] }, // Don't verify admins here
     });
     res.json(customers);
   } catch (error) {
@@ -335,70 +364,67 @@ exports.getAllCustomers = async (req, res) => {
   }
 };
 
-
-
 // Add to adminController.js
 // 8. Get All Products (with Pagination, Search, Filter)
 exports.getAllProducts = async (req, res) => {
-    try {
-        const { page = 1, limit = 10, search, category } = req.query;
-        const query = {};
-        const skip = (parseInt(page) - 1) * parseInt(limit);
+  try {
+    const { page = 1, limit = 10, search, category } = req.query;
+    const query = {};
+    const skip = (parseInt(page) - 1) * parseInt(limit);
 
-        if (search) {
-            query.name = { $regex: search, $options: 'i' }; // Case-insensitive search
-        }
-        if (category) {
-            query.category_id = category; // Assuming category_id is stored
-        }
-
-        const products = await Product.find(query)
-            .limit(parseInt(limit))
-            .skip(skip)
-            .sort({ name: 1 });
-            
-        const total = await Product.countDocuments(query);
-
-        res.json({
-            products,
-            total,
-            page: parseInt(page),
-            pages: Math.ceil(total / limit)
-        });
-    } catch (error) {
-        res.status(500).json({ message: error.message });
+    if (search) {
+      query.name = { $regex: search, $options: "i" }; // Case-insensitive search
     }
+    if (category) {
+      query.category_id = category; // Assuming category_id is stored
+    }
+
+    const products = await Product.find(query)
+      .limit(parseInt(limit))
+      .skip(skip)
+      .sort({ name: 1 });
+
+    const total = await Product.countDocuments(query);
+
+    res.json({
+      products,
+      total,
+      page: parseInt(page),
+      pages: Math.ceil(total / limit),
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 };
 
 // Add to adminController.js
 // 9. Get Order Details (with Items and User)
-exports.getOrderById= async (req, res) => {
+exports.getOrderById = async (req, res) => {
   try {
     const { id } = req.params; // Order primary key ID
 
     const order = await Order.findByPk(id, {
       include: [
-        { 
-          model: User, 
-          attributes: ['email', 'first_name', 'last_name', 'phone'] 
+        {
+          model: User,
+          attributes: ["email", "first_name", "last_name", "phone"],
         },
-        { 
-          model: OrderItem, 
+        {
+          model: OrderItem,
           // Include all item details to show what was purchased
-          attributes: ['product_id', 'quantity', 'price_at_purchase', 'sku'] 
-        }
+          attributes: ["product_id", "quantity", "price_at_purchase", "sku"],
+        },
         // You may also want to include ShippingAddress and PaymentInfo models here if they exist
-      ]
+      ],
     });
 
-    if (!order) return res.status(404).json({ message: 'Order not found' });
+    if (!order) return res.status(404).json({ message: "Order not found" });
 
     res.json(order);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
-
 
 // Add to adminController.js
 // Don't forget to import the Category model:
@@ -434,7 +460,8 @@ exports.updateCategory = async (req, res) => {
       req.body,
       { new: true }
     );
-    if (!updatedCategory) return res.status(404).json({ message: 'Category not found' });
+    if (!updatedCategory)
+      return res.status(404).json({ message: "Category not found" });
     res.json(updatedCategory);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -446,19 +473,24 @@ exports.deleteCategory = async (req, res) => {
   // IMPORTANT: Add a check here to ensure no products are using this category_id
   try {
     const { id } = req.params;
-    
-    const productsUsingCategory = await Product.countDocuments({ category_id: id });
+
+    const productsUsingCategory = await Product.countDocuments({
+      category_id: id,
+    });
     if (productsUsingCategory > 0) {
-      return res.status(400).json({ message: `Cannot delete category: ${productsUsingCategory} products still use it.` });
+      return res
+        .status(400)
+        .json({
+          message: `Cannot delete category: ${productsUsingCategory} products still use it.`,
+        });
     }
 
     await Category.findOneAndDelete({ category_id: id });
-    res.json({ message: 'Category deleted successfully' });
+    res.json({ message: "Category deleted successfully" });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
-
 
 // Add this to your adminController.js
 
@@ -472,32 +504,42 @@ exports.getProductById = async (req, res) => {
 
     // 1. Fetch from MongoDB (Catalog/Display Data)
     const productMongo = await Product.findOne({ product_id: id });
-    
+
     // 2. Fetch from PostgreSQL (Inventory/Stock Data)
-    const inventoryPostgres = await Inventory.findOne({ 
+    const inventoryPostgres = await Inventory.findOne({
       where: { product_id: id },
       // Select only the attributes the admin needs for inventory/editing
-      attributes: ['sku', 'stock_level', 'current_price', 'created_at', 'updated_at'] 
+      attributes: [
+        "sku",
+        "stock_level",
+        "current_price",
+        "created_at",
+        "updated_at",
+      ],
     });
 
     if (!productMongo) {
       // If the catalog entry is missing, the product cannot be viewed
-      return res.status(404).json({ message: 'Product not found in catalog.' });
+      return res.status(404).json({ message: "Product not found in catalog." });
     }
 
     // Combine the data using the spread operator
     const fullProduct = {
       ...productMongo.toObject(), // Convert Mongoose document to a plain object
-      inventory: inventoryPostgres ? inventoryPostgres.toJSON() : null // Attach inventory data
+      inventory: inventoryPostgres ? inventoryPostgres.toJSON() : null, // Attach inventory data
     };
 
     res.json(fullProduct);
   } catch (error) {
-    console.error('Error fetching combined product:', error);
-    res.status(500).json({ message: 'Internal server error while retrieving product.', error: error.message });
+    console.error("Error fetching combined product:", error);
+    res
+      .status(500)
+      .json({
+        message: "Internal server error while retrieving product.",
+        error: error.message,
+      });
   }
 };
-
 
 // ===== Helper: Parse date range from query (for analytics) =====
 const parseDateRange = (req) => {
@@ -524,7 +566,7 @@ exports.getOverviewStats = async (req, res) => {
     // 👇 IMPORTANT: adjust 'total_amount' and 'status' field names
     // if your Order model uses different column names.
     const paidOrderWhere = {
-      status: 'Paid', // e.g., 'Paid', 'Completed' – adjust to your enum
+      status: "Paid", // e.g., 'Paid', 'Completed' – adjust to your enum
       createdAt: { [Op.between]: [start, end] },
     };
 
@@ -544,7 +586,9 @@ exports.getOverviewStats = async (req, res) => {
     ] = await Promise.all([
       // Total revenue from paid orders
       Order.findOne({
-        attributes: [[fn('COALESCE', fn('SUM', col('total_amount')), 0), 'totalRevenue']],
+        attributes: [
+          [fn("COALESCE", fn("SUM", col("total_amount")), 0), "totalRevenue"],
+        ],
         where: paidOrderWhere,
         raw: true,
       }),
@@ -559,7 +603,7 @@ exports.getOverviewStats = async (req, res) => {
       Order.count({
         where: {
           ...allOrderWhere,
-          status: 'Pending Payment',
+          status: "Pending Payment",
         },
       }),
 
@@ -567,7 +611,7 @@ exports.getOverviewStats = async (req, res) => {
       Order.count({
         where: {
           ...allOrderWhere,
-          status: 'Cancelled',
+          status: "Cancelled",
         },
       }),
 
@@ -575,7 +619,7 @@ exports.getOverviewStats = async (req, res) => {
       Order.count({
         where: allOrderWhere,
         distinct: true,
-        col: 'user_id',
+        col: "user_id",
       }),
 
       // Total customers in system
@@ -614,13 +658,12 @@ exports.getOverviewStats = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('getOverviewStats error:', error);
+    console.error("getOverviewStats error:", error);
     return res
       .status(500)
-      .json({ message: 'Failed to load overview stats', error: error.message });
+      .json({ message: "Failed to load overview stats", error: error.message });
   }
 };
-
 
 // GET /api/admin/analytics/revenue-by-day
 // Query params (optional): from=YYYY-MM-DD, to=YYYY-MM-DD
@@ -630,16 +673,16 @@ exports.getRevenueByDay = async (req, res) => {
 
     const rows = await Order.findAll({
       attributes: [
-        [fn('DATE', col('createdAt')), 'date'],
-        [fn('SUM', col('total_amount')), 'revenue'],
-        [fn('COUNT', col('order_id')), 'orders'],
+        [fn("DATE", col("createdAt")), "date"],
+        [fn("SUM", col("total_amount")), "revenue"],
+        [fn("COUNT", col("order_id")), "orders"],
       ],
       where: {
-        status: 'Paid', // adjust if needed
+        status: "Paid", // adjust if needed
         createdAt: { [Op.between]: [start, end] },
       },
       group: [literal('DATE("Order"."createdAt")')],
-      order: [literal('date ASC')],
+      order: [literal("date ASC")],
       raw: true,
     });
 
@@ -654,21 +697,19 @@ exports.getRevenueByDay = async (req, res) => {
       days: result,
     });
   } catch (error) {
-    console.error('getRevenueByDay error:', error);
+    console.error("getRevenueByDay error:", error);
     return res
       .status(500)
-      .json({ message: 'Failed to load revenue by day', error: error.message });
+      .json({ message: "Failed to load revenue by day", error: error.message });
   }
 };
-
-
 
 // GET /api/admin/analytics/top-products
 // Query params: from, to, limit (optional, default 10)
 exports.getTopProducts = async (req, res) => {
   try {
     const { start, end } = parseDateRange(req);
-    const limit = parseInt(req.query.limit || '10', 10);
+    const limit = parseInt(req.query.limit || "10", 10);
 
     const rows = await OrderItem.findAll({
       include: [
@@ -676,24 +717,24 @@ exports.getTopProducts = async (req, res) => {
           model: Order,
           attributes: [],
           where: {
-            status: 'Paid', // adjust if needed
+            status: "Paid", // adjust if needed
             createdAt: { [Op.between]: [start, end] },
           },
         },
       ],
       attributes: [
-        'product_id',
-        [fn('SUM', col('quantity')), 'totalQuantity'],
+        "product_id",
+        [fn("SUM", col("quantity")), "totalQuantity"],
         [
           fn(
-            'SUM',
+            "SUM",
             literal('"OrderItem"."quantity" * "OrderItem"."unit_price"')
           ),
-          'totalRevenue',
+          "totalRevenue",
         ],
       ],
-      group: ['OrderItem.product_id'],
-      order: [[literal('totalRevenue'), 'DESC']],
+      group: ["OrderItem.product_id"],
+      order: [[literal("totalRevenue"), "DESC"]],
       limit,
       raw: true,
     });
@@ -741,10 +782,10 @@ exports.getTopProducts = async (req, res) => {
       items: result,
     });
   } catch (error) {
-    console.error('getTopProducts error:', error);
+    console.error("getTopProducts error:", error);
     return res
       .status(500)
-      .json({ message: 'Failed to load top products', error: error.message });
+      .json({ message: "Failed to load top products", error: error.message });
   }
 };
 
@@ -753,20 +794,20 @@ exports.getTopProducts = async (req, res) => {
 exports.getTopCustomers = async (req, res) => {
   try {
     const { start, end } = parseDateRange(req);
-    const limit = parseInt(req.query.limit || '10', 10);
+    const limit = parseInt(req.query.limit || "10", 10);
 
     const rows = await Order.findAll({
       attributes: [
-        'user_id',
-        [fn('SUM', col('total_amount')), 'totalSpent'],
-        [fn('COUNT', col('order_id')), 'orderCount'],
+        "user_id",
+        [fn("SUM", col("total_amount")), "totalSpent"],
+        [fn("COUNT", col("order_id")), "orderCount"],
       ],
       where: {
-        status: 'Paid',
+        status: "Paid",
         createdAt: { [Op.between]: [start, end] },
       },
-      group: ['user_id'],
-      order: [[literal('totalSpent'), 'DESC']],
+      group: ["user_id"],
+      order: [[literal("totalSpent"), "DESC"]],
       limit,
       raw: true,
     });
@@ -798,10 +839,10 @@ exports.getTopCustomers = async (req, res) => {
       customers: result,
     });
   } catch (error) {
-    console.error('getTopCustomers error:', error);
+    console.error("getTopCustomers error:", error);
     return res
       .status(500)
-      .json({ message: 'Failed to load top customers', error: error.message });
+      .json({ message: "Failed to load top customers", error: error.message });
   }
 };
 
@@ -913,7 +954,3 @@ exports.deleteProductImage = async (req, res) => {
       .json({ message: err.message || "Failed to delete image" });
   }
 };
-
-
-
-
