@@ -10,6 +10,8 @@ const profileRoutes = require('./routes/profileRoutes');
 const adminRoutes = require('./routes/adminRoutes'); // Uncomment when ready
 const cartRoutes = require('./routes/cartRoutes');
 const paymentRoutes = require("./routes/paymentRoute");
+const batteryRoutes=require('./routes/batteryRoute');
+
 
 
 const requestLogger = require('./middlewares/requestLogger');
@@ -41,6 +43,8 @@ app.use('/api/profile', profileRoutes);
 app.use('/api/cart', cartRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use('/api/admin', adminRoutes); // Uncomment when ready
+app.use("/api/battery",batteryRoutes);
+
 // ====================================================================
 // 2. ROUTES
 // ====================================================================

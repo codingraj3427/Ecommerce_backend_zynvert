@@ -4,8 +4,8 @@
   "description": "Polyglot E-commerce Backend with PostgreSQL and MongoDB",
   "main": "server.js",
   "scripts": {
-  "start": "node --dns-result-order=ipv4first server.js",
-  "dev": "nodemon --dns-result-order=ipv4first server.js",
+    "start": "node --dns-result-order=ipv4first server.js",
+    "dev": "nodemon --dns-result-order=ipv4first server.js",
     "seed": "node src/utils/seed.js"
   },
   "keywords": [
@@ -30,7 +30,8 @@
     "pg-hstore": "^2.3.4",
     "razorpay": "^2.9.6",
     "sequelize": "^6.37.7",
-    "stripe": "^20.0.0"
+    "stripe": "^20.0.0",
+    "vercel": "^50.3.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"
