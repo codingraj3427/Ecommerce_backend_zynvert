@@ -1,5 +1,10 @@
-const Stripe = require("stripe");
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+const Razorpay = require("razorpay");
+
+const razorpay = new Razorpay({
+  key_id: process.env.RAZORPAY_KEY_ID,
+  key_secret: process.env.RAZORPAY_KEY_SECRET,
+});
+
 
 // ✅ IMPORT POSTGRES MODELS
 const { Order, OrderItem, Cart, CartItem, Inventory } = require("../models/postgres");
@@ -27,71 +32,51 @@ exports.createCheckoutSession = async (req, res) => {
       return res.status(400).json({ message: "Shipping address missing" });
     }
 
-    // 1️⃣ CREATE ORDER IN DATABASE (Status: Pending Payment)
+    // 1️⃣ CREATE ORDER (UNCHANGED)
     const order = await Order.create({
       user_id: userId,
-      
-      // ✅ MAP FRONTEND ADDRESS TO DB COLUMNS CORRECTLY
       shipping_name: shippingAddress.name,
       shipping_line1: shippingAddress.line1,
       shipping_city: shippingAddress.city,
-      shipping_state: shippingAddress.state, // ✅ NEW: Matches your updated Schema
-      shipping_pincode: shippingAddress.postal_code, 
-      
-      total_amount: cartItems.reduce((sum, i) => sum + i.price * i.quantity, 0),
+      shipping_state: shippingAddress.state,
+      shipping_pincode: shippingAddress.postal_code,
+      total_amount: cartItems.reduce((s, i) => s + i.price * i.quantity, 0),
       status: "Pending Payment",
     });
 
-    // 2️⃣ CREATE ORDER ITEMS
+    // 2️⃣ CREATE ORDER ITEMS (UNCHANGED)
     for (const item of cartItems) {
       await OrderItem.create({
         order_id: order.order_id,
-        product_id: item.productId || item.product_id || item.id, // Handle potential key variations
+        product_id: item.productId || item.product_id || item.id,
         quantity: item.quantity,
         unit_price: item.price,
       });
     }
 
-    // 3️⃣ PREPARE STRIPE LINE ITEMS
-    const lineItems = cartItems.map((item) => ({
-      price_data: {
-        currency: "inr",
-        product_data: {
-          name: item.name,
-          images: item.image ? [item.image] : [],
-        },
-        unit_amount: Math.round(item.price * 100),
-      },
-      quantity: item.quantity,
-    }));
-
-    // 4️⃣ CREATE STRIPE SESSION
-    const session = await stripe.checkout.sessions.create({
-      mode: "payment",
-      payment_method_types: ["card"],
-      locale: 'en', 
-      line_items: lineItems,
-      shipping_address_collection: {
-        allowed_countries: ["IN"],
-      },
-      customer_email: req.user.email,
-      
-      // ✅ PASS ORDER ID TO STRIPE METADATA
-      metadata: {
+    // 3️⃣ CREATE RAZORPAY ORDER (NEW)
+    const razorpayOrder = await razorpay.orders.create({
+      amount: Math.round(order.total_amount * 100), // paise
+      currency: "INR",
+      receipt: `order_${order.order_id}`,
+      notes: {
         order_id: order.order_id.toString(),
         user_id: userId,
       },
-
-      success_url: `${FRONTEND_URL}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${FRONTEND_URL}/cart`,
     });
 
-    res.json({ url: session.url });
+    // 4️⃣ SEND DATA TO FRONTEND
+    res.json({
+      razorpayOrderId: razorpayOrder.id,
+      orderId: order.order_id,
+      amount: razorpayOrder.amount,
+    });
   } catch (err) {
-    console.error("Stripe Checkout Error:", err);
-    res.status(500).json({ message: "Stripe error: " + err.message });
+    console.error("Razorpay Order Error:", err);
+    res.status(500).json({ message: "Payment initialization failed" });
   }
 };
+
 
 /* ============================================================
    2. CONFIRM PAYMENT
@@ -101,61 +86,63 @@ exports.createCheckoutSession = async (req, res) => {
    - Clear Cart
    ============================================================ */
 exports.confirmPayment = async (req, res) => {
-  const { sessionId } = req.body;
-  const userId = req.user.uid; 
+  const { orderId } = req.body;
+  const userId = req.user.uid;
 
   try {
-    // 1️⃣ Verify Session from Stripe
-    const session = await stripe.checkout.sessions.retrieve(sessionId);
-    
-    if (session.payment_status !== 'paid') {
-      return res.status(400).json({ message: "Payment not completed" });
-    }
-
-    const orderId = session.metadata.order_id;
     if (!orderId) {
-        return res.status(400).json({ message: "Invalid session metadata" });
+      return res.status(400).json({ message: "Order ID missing" });
     }
 
-    // 2️⃣ Update Order Status to 'Paid'
+    // 1️⃣ FETCH ORDER
     const order = await Order.findByPk(orderId);
     if (!order) {
-        return res.status(404).json({ message: "Order not found" });
+      return res.status(404).json({ message: "Order not found" });
     }
 
-    // Only process if not already paid (prevents double deduction on refresh)
-    if (order.status !== 'Paid') {
-        order.status = 'Paid';
-        await order.save();
+    // Prevent double processing
+    if (order.status !== "Paid") {
+      order.status = "Paid";
+      await order.save();
 
-        // 3️⃣ Deduct Inventory
-        const orderItems = await OrderItem.findAll({ where: { order_id: orderId } });
+      // 2️⃣ INVENTORY DEDUCTION (UNCHANGED)
+      const orderItems = await OrderItem.findAll({
+        where: { order_id: orderId },
+      });
 
-        for (const item of orderItems) {
-            // A. Update Postgres Inventory
-            const inventoryItem = await Inventory.findOne({ where: { product_id: item.product_id } });
-            
-            if (inventoryItem) {
-                const newStock = Math.max(0, inventoryItem.stock_level - item.quantity);
-                inventoryItem.stock_level = newStock;
-                await inventoryItem.save();
+      for (const item of orderItems) {
+        const inventoryItem = await Inventory.findOne({
+          where: { product_id: item.product_id },
+        });
 
-                // B. Sync to Mongo Product (For frontend cards)
-                await Product.findOneAndUpdate(
-                    { product_id: item.product_id },
-                    { $set: { stock_level: newStock } }
-                );
-            }
+        if (inventoryItem) {
+          const newStock = Math.max(
+            0,
+            inventoryItem.stock_level - item.quantity
+          );
+
+          inventoryItem.stock_level = newStock;
+          await inventoryItem.save();
+
+          // Sync Mongo
+          await Product.findOneAndUpdate(
+            { product_id: item.product_id },
+            { $set: { stock_level: newStock } }
+          );
         }
+      }
     }
 
-    // 4️⃣ Clear The User's Cart
+    // 3️⃣ CLEAR CART (UNCHANGED)
     const cart = await Cart.findOne({ where: { user_id: userId } });
     if (cart) {
       await CartItem.destroy({ where: { cart_id: cart.cart_id } });
     }
 
-    res.status(200).json({ success: true, message: "Order processed successfully" });
+    res.status(200).json({
+      success: true,
+      message: "Order processed successfully",
+    });
   } catch (error) {
     console.error("Confirm Payment Error:", error);
     res.status(500).json({ message: "Failed to confirm payment" });
