@@ -18,7 +18,7 @@ exports.getCart = async (req, res) => {
       include: [
         {
           model: CartItem,
-          include: [{ model: Inventory, attributes: ['product_id', 'sku', 'current_price', 'stock_level'] }] 
+          include: [{ model: Inventory, attributes: ['product_id', 'sku', 'name', 'current_price', 'stock_level'] }] 
         }
       ]
     });

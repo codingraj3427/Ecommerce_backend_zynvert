@@ -124,6 +124,7 @@ exports.createProduct = async (req, res) => {
     const inventoryRow = await Inventory.create(
       {
         product_id,
+        name,
         sku: sku || null,
         stock_level,
         current_price,

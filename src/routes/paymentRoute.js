@@ -6,8 +6,10 @@ const paymentController = require("../controllers/paymentController");
 router.post(
   "/create-checkout-session",
   verifyToken,
-  paymentController.createCheckoutSession
+  paymentController.createCheckoutSession,
 );
+
+router.post("/cod", verifyToken, paymentController.placeCODOrder);
 
 // ✅ Protect this route so req.user works
 router.post("/confirm", verifyToken, paymentController.confirmPayment);
