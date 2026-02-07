@@ -30,6 +30,12 @@ const Address = sequelize.define(
     },
     user_id: { type: DataTypes.STRING(128), allowNull: false },
     full_name: DataTypes.STRING(150),
+
+    phone: {
+      type: DataTypes.STRING(20),
+      allowNull: true, // 🔴 IMPORTANT
+    },
+
     line1: { type: DataTypes.STRING(255), allowNull: false },
     line2: DataTypes.STRING(255),
     city: { type: DataTypes.STRING(100), allowNull: false },
@@ -134,27 +140,28 @@ const Order = sequelize.define(
 
     user_id: { type: DataTypes.STRING(128), allowNull: false },
 
-    // ✅ ADDED allowNull: false to prevent blank shipping info
     shipping_name: { type: DataTypes.STRING(150), allowNull: false },
+
+    shipping_phone: {
+      type: DataTypes.STRING(20),
+      allowNull: true, // 🔴 HARD REQUIREMENT
+    },
+
     shipping_line1: { type: DataTypes.STRING(255), allowNull: false },
     shipping_city: { type: DataTypes.STRING(100), allowNull: false },
-
-    // ✅ ADDED Missing State Field
     shipping_state: { type: DataTypes.STRING(100), allowNull: false },
-
     shipping_pincode: { type: DataTypes.STRING(20), allowNull: false },
 
     total_amount: { type: DataTypes.DECIMAL(10, 2), allowNull: false },
-
     status: { type: DataTypes.STRING(50), defaultValue: "Pending Payment" },
 
-    // Tracking info can remain nullable (filled later by admin)
     tracking_number: DataTypes.STRING(100),
     carrier_name: DataTypes.STRING(50),
     tracking_url: DataTypes.TEXT,
   },
   { tableName: "orders", timestamps: true },
 );
+
 
 /* =========================
    7. OrderItem Model

@@ -7,6 +7,7 @@ const razorpay = new Razorpay({
 
 // Postgres models
 const {
+  User,          // ✅ ADD
   Order,
   OrderItem,
   Cart,
@@ -29,33 +30,38 @@ exports.createCheckoutSession = async (req, res) => {
       return res.status(400).json({ message: "Shipping address missing" });
     }
 
-    // ✅ LOAD CART FROM DB (SOURCE OF TRUTH)
+    // ✅ FETCH USER PHONE (SOURCE OF TRUTH)
+    const user = await User.findByPk(userId);
+
+    if (!user || !user.phone_number) {
+      return res.status(400).json({
+        message:
+          "Phone number is required. Please update your profile and try again.",
+      });
+    }
+
+    // ✅ LOAD CART
     const cart = await Cart.findOne({
       where: { user_id: userId },
-      include: [
-        {
-          model: CartItem,
-          include: [Inventory],
-        },
-      ],
+      include: [{ model: CartItem, include: [Inventory] }],
     });
 
     if (!cart || cart.CartItems.length === 0) {
       return res.status(400).json({ message: "Cart is empty" });
     }
 
-    // ✅ CALCULATE TOTAL FROM DB
     const itemsTotal = cart.CartItems.reduce(
       (sum, item) => sum + item.quantity * Number(item.Inventory.current_price),
-      0,
+      0
     );
 
     const finalAmount = itemsTotal + Number(shippingFee);
 
-    // ✅ CREATE ORDER
+    // ✅ CREATE ORDER (PHONE FROM USER)
     const order = await Order.create({
       user_id: userId,
       shipping_name: shippingAddress.name,
+      shipping_phone: user.phone_number, // ✅ FIX
       shipping_line1: shippingAddress.line1,
       shipping_city: shippingAddress.city,
       shipping_state: shippingAddress.state,
@@ -64,7 +70,6 @@ exports.createCheckoutSession = async (req, res) => {
       status: "Pending Payment",
     });
 
-    // ✅ CREATE ORDER ITEMS FROM DB CART
     for (const item of cart.CartItems) {
       await OrderItem.create({
         order_id: order.order_id,
@@ -74,15 +79,13 @@ exports.createCheckoutSession = async (req, res) => {
       });
     }
 
-    // ✅ CREATE RAZORPAY ORDER
     const razorpayOrder = await razorpay.orders.create({
-      amount: Math.round(finalAmount * 100), // paise
+      amount: Math.round(finalAmount * 100),
       currency: "INR",
       receipt: `order_${order.order_id}`,
       notes: {
         order_id: String(order.order_id),
         user_id: userId,
-        shipping_fee: String(shippingFee),
       },
     });
 
@@ -98,7 +101,7 @@ exports.createCheckoutSession = async (req, res) => {
 };
 
 /* ============================================================
-   2. CONFIRM PAYMENT
+   2. CONFIRM PAYMENT (NO CHANGE NEEDED)
    ============================================================ */
 exports.confirmPayment = async (req, res) => {
   const { orderId } = req.body;
@@ -128,23 +131,20 @@ exports.confirmPayment = async (req, res) => {
         });
 
         if (inventoryItem) {
-          const newStock = Math.max(
+          inventoryItem.stock_level = Math.max(
             0,
-            inventoryItem.stock_level - item.quantity,
+            inventoryItem.stock_level - item.quantity
           );
-
-          inventoryItem.stock_level = newStock;
           await inventoryItem.save();
 
           await Product.findOneAndUpdate(
             { product_id: item.product_id },
-            { $set: { stock_level: newStock } },
+            { $set: { stock_level: inventoryItem.stock_level } }
           );
         }
       }
     }
 
-    // ✅ CLEAR CART
     const cart = await Cart.findOne({ where: { user_id: userId } });
     if (cart) {
       await CartItem.destroy({ where: { cart_id: cart.cart_id } });
@@ -169,15 +169,19 @@ exports.placeCODOrder = async (req, res) => {
       return res.status(400).json({ message: "Shipping address missing" });
     }
 
-    // ✅ LOAD CART FROM DB
+    // ✅ FETCH USER PHONE
+    const user = await User.findByPk(userId);
+
+    if (!user || !user.phone_number) {
+      return res.status(400).json({
+        message:
+          "Phone number is required. Please update your profile and try again.",
+      });
+    }
+
     const cart = await Cart.findOne({
       where: { user_id: userId },
-      include: [
-        {
-          model: CartItem,
-          include: [Inventory],
-        },
-      ],
+      include: [{ model: CartItem, include: [Inventory] }],
     });
 
     if (!cart || cart.CartItems.length === 0) {
@@ -186,7 +190,7 @@ exports.placeCODOrder = async (req, res) => {
 
     const itemsTotal = cart.CartItems.reduce(
       (sum, item) => sum + item.quantity * Number(item.Inventory.current_price),
-      0,
+      0
     );
 
     const finalAmount = itemsTotal + Number(shippingFee);
@@ -194,6 +198,7 @@ exports.placeCODOrder = async (req, res) => {
     const order = await Order.create({
       user_id: userId,
       shipping_name: shippingAddress.name,
+      shipping_phone: user.phone_number, // ✅ FIX
       shipping_line1: shippingAddress.line1,
       shipping_city: shippingAddress.city,
       shipping_state: shippingAddress.state,
@@ -211,26 +216,25 @@ exports.placeCODOrder = async (req, res) => {
       });
     }
 
-    // ✅ DEDUCT INVENTORY
     for (const item of cart.CartItems) {
       const inventoryItem = await Inventory.findOne({
         where: { product_id: item.product_id },
       });
 
       if (inventoryItem) {
-        const newStock = Math.max(0, inventoryItem.stock_level - item.quantity);
-
-        inventoryItem.stock_level = newStock;
+        inventoryItem.stock_level = Math.max(
+          0,
+          inventoryItem.stock_level - item.quantity
+        );
         await inventoryItem.save();
 
         await Product.findOneAndUpdate(
           { product_id: item.product_id },
-          { $set: { stock_level: newStock } },
+          { $set: { stock_level: inventoryItem.stock_level } }
         );
       }
     }
 
-    // ✅ CLEAR CART
     await CartItem.destroy({ where: { cart_id: cart.cart_id } });
 
     res.json({ success: true, orderId: order.order_id });
