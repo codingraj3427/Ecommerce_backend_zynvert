@@ -44,7 +44,9 @@ app.use("/api/cart", cartRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/admin", adminRoutes); // Uncomment when ready
 app.use("/api/battery", batteryRoutes);
+app.use("/api/send-inquiry", batteryRoutes);
 app.use("/api/search", searchRoutes);
+
 
 // ====================================================================
 // 2. ROUTES
