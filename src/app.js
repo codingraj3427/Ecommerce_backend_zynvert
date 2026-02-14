@@ -47,7 +47,6 @@ app.use("/api/battery", batteryRoutes);
 app.use("/api/send-inquiry", batteryRoutes);
 app.use("/api/search", searchRoutes);
 
-
 // ====================================================================
 // 2. ROUTES
 // ====================================================================
