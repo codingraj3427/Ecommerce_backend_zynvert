@@ -13,6 +13,7 @@ const paymentRoutes = require("./routes/paymentRoute");
 const batteryRoutes = require("./routes/batteryRoute");
 const searchRoutes = require("./routes/searchRoutes");
 const requestLogger = require("./middlewares/requestLogger");
+const reviewRoutes = require("./routes/reviewRoute");
 
 const app = express();
 
@@ -22,7 +23,7 @@ const app = express();
 
 // Enable CORS with specific options
 app.use(
-  cors({
+  cors({  
     origin: ["http://localhost:3000", "http://192.168.1.10:3000"], // Allow your Frontend URL
     methods: ["GET", "POST", "PUT", "DELETE"], // Allow these HTTP methods
     allowedHeaders: ["Content-Type", "Authorization"], // Allow these headers
@@ -46,6 +47,7 @@ app.use("/api/admin", adminRoutes); // Uncomment when ready
 app.use("/api/battery", batteryRoutes);
 app.use("/api/send-inquiry", batteryRoutes);
 app.use("/api/search", searchRoutes);
+app.use("/api/reviews", reviewRoutes);
 
 // ====================================================================
 // 2. ROUTES

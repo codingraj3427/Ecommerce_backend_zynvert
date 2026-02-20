@@ -10,12 +10,19 @@ cloudinary.config({
 
 const storage = new CloudinaryStorage({
   cloudinary,
-  params: {
-    folder: "products",
-    allowed_formats: ["jpg", "jpeg", "png", "webp"],
-    transformation: [{ quality: "auto", fetch_format: "auto" }],
+  params: async (req, file) => {
+    // Decide folder dynamically
+    const folderName =
+      req.uploadFolder === "reviews" ? "reviews" : "products";
+
+    return {
+      folder: folderName,
+      allowed_formats: ["jpg", "jpeg", "png", "webp"],
+      transformation: [{ quality: "auto", fetch_format: "auto" }],
+    };
   },
 });
+
 
 const upload = multer({ storage });
 
