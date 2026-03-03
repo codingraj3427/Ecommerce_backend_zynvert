@@ -48,7 +48,7 @@ exports.getOrderById = async (req, res) => {
           model: OrderItem,
           include: [{ 
             model: Inventory,
-            attributes: ['product_id', 'sku', 'current_price'] // Fetch SKU/Price for display
+            attributes: ['name','product_id', 'sku', 'current_price','image_url'] // Fetch SKU/Price for display
           }]
         }
       ]

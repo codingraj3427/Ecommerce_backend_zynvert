@@ -65,7 +65,6 @@ const Inventory = sequelize.define(
     },
 
     name: {
-      // ✅ PRODUCT NAME FROM LISTING
       type: DataTypes.STRING(255),
       allowNull: false,
     },
@@ -85,11 +84,17 @@ const Inventory = sequelize.define(
       type: DataTypes.DECIMAL(10, 2),
       allowNull: false,
     },
+
+    // ✅ ADD THIS
+    image_url: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
   },
   {
     tableName: "inventory",
     timestamps: true,
-  },
+  }
 );
 
 /* =========================

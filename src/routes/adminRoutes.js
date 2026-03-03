@@ -7,6 +7,7 @@ const verifyAdmin = require('../middlewares/adminMiddleware');
 const auditLogger = require('../middlewares/auditLogMiddleware');
 const adminAnalyticsController = require('../controllers/adminAnalyticsController');
 const upload = require("../middlewares/upload");
+const adminReviewController = require('../controllers/adminReviewController');
 
 // All admin routes need: valid Firebase token + is_admin = true
 router.use(verifyToken, verifyAdmin);
@@ -128,6 +129,14 @@ router.delete(
   adminController.deleteProductImage
 );
 
+
+// ==========================
+// REVIEWS (Admin)
+// ==========================
+
+router.get('/reviews', adminReviewController.getAllReviews);
+router.delete('/reviews/:productId/:reviewId', adminReviewController.deleteReview);
+router.put('/reviews/:productId/:reviewId', adminReviewController.updateReview);
 
 
 module.exports = router;

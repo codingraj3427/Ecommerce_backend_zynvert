@@ -14,6 +14,7 @@ const batteryRoutes = require("./routes/batteryRoute");
 const searchRoutes = require("./routes/searchRoutes");
 const requestLogger = require("./middlewares/requestLogger");
 const reviewRoutes = require("./routes/reviewRoute");
+const campaignRoutes = require("./routes/campaignRoute");
 
 const app = express();
 
@@ -23,8 +24,8 @@ const app = express();
 
 // Enable CORS with specific options
 app.use(
-  cors({  
-    origin: ["http://localhost:3000", "http://192.168.1.10:3000"], // Allow your Frontend URL
+  cors({
+    origin: ["http://localhost:3000", "http://192.168.1.23:3000"], // Allow your Frontend URL
     methods: ["GET", "POST", "PUT", "DELETE"], // Allow these HTTP methods
     allowedHeaders: ["Content-Type", "Authorization"], // Allow these headers
     credentials: true, // Allow cookies/headers to be sent
@@ -48,7 +49,7 @@ app.use("/api/battery", batteryRoutes);
 app.use("/api/send-inquiry", batteryRoutes);
 app.use("/api/search", searchRoutes);
 app.use("/api/reviews", reviewRoutes);
-
+app.use("/api/admin/campaign", campaignRoutes);
 // ====================================================================
 // 2. ROUTES
 // ====================================================================

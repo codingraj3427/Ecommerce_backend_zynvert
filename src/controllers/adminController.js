@@ -24,12 +24,10 @@ exports.createProduct = async (req, res) => {
     t = await sequelize.transaction();
   } catch (error) {
     console.error("Failed to start transaction:", error);
-    return res
-      .status(500)
-      .json({
-        message: "Failed to start DB transaction",
-        error: error.message,
-      });
+    return res.status(500).json({
+      message: "Failed to start DB transaction",
+      error: error.message,
+    });
   }
 
   try {
@@ -103,6 +101,7 @@ exports.createProduct = async (req, res) => {
       images = [images];
     }
     images = images.map((img) => String(img));
+    const primaryImage = images.length > 0 ? images[0] : null;
 
     // Technical specs: ensure object
     if (!technical_specs || typeof technical_specs !== "object") {
@@ -128,8 +127,9 @@ exports.createProduct = async (req, res) => {
         sku: sku || null,
         stock_level,
         current_price,
+        image_url: primaryImage, // ✅ STORE IMAGE IN POSTGRES
       },
-      { transaction: t }
+      { transaction: t },
     );
 
     // ---------- B. Create Product in Mongo ----------
@@ -180,11 +180,18 @@ exports.updateProductDetails = async (req, res) => {
     const updatedProduct = await Product.findOneAndUpdate(
       { product_id: id },
       updateData,
-      { new: true }
+      { new: true },
     );
 
     if (!updatedProduct)
       return res.status(404).json({ message: "Product not found" });
+
+    if (updateData.images && updateData.images.length > 0) {
+      await Inventory.update(
+        { image_url: updateData.images[0] },
+        { where: { product_id: id } },
+      );
+    }
 
     res.json({ message: "Product details updated", product: updatedProduct });
   } catch (error) {
@@ -303,28 +310,35 @@ exports.deleteProduct = async (req, res) => {
 
 // 5. Get All Orders
 // 5. Get All Orders (✅ FIXED)
+// 5. Get All Orders (SUMMARY LIST ONLY)
 exports.getAllOrders = async (req, res) => {
   try {
     const orders = await Order.findAll({
-      // ✅ FIX 1: Change 'created_at' to 'createdAt'
       order: [["createdAt", "DESC"]],
-
+      attributes: [
+        "order_id",
+        "createdAt",
+        "status",
+        "total_amount",
+        "shipping_city",
+        "shipping_name",
+        "shipping_line1", // ✅ ADD THIS
+      ],
       include: [
         {
           model: User,
-          attributes: ["email", "first_name", "last_name"],
+          attributes: ["email"],
         },
-        // ✅ FIX 2: Include Items so you can see WHAT they ordered
         {
           model: OrderItem,
-          // Optional: Include Inventory/Product info if you need SKU/Names
-          // include: [{ model: Inventory }]
+          attributes: ["quantity", "product_id"],
         },
       ],
     });
+
     res.json(orders);
   } catch (error) {
-    console.error("Get All Orders Error:", error); // ✅ Log error to terminal
+    console.error("Get All Orders Error:", error);
     res.status(500).json({ message: error.message });
   }
 };
@@ -400,33 +414,45 @@ exports.getAllProducts = async (req, res) => {
 
 // Add to adminController.js
 // 9. Get Order Details (with Items and User)
+// 9. Get Order Full Details
+// 9. Get Order Full Details
 exports.getOrderById = async (req, res) => {
   try {
-    const { id } = req.params; // Order primary key ID
+    const { id } = req.params;
 
-    const order = await Order.findByPk(id, {
+    console.log("Fetching order with id:", id); // Debug log
+
+    // Try finding by order_id first
+    let order = await Order.findOne({
+      where: { order_id: id },
       include: [
         {
           model: User,
-          attributes: ["email", "first_name", "last_name", "phone"],
+          attributes: ["email", "first_name", "last_name", "phone_number"],
         },
         {
           model: OrderItem,
-          // Include all item details to show what was purchased
-          attributes: ["product_id", "quantity", "price_at_purchase", "sku"],
+          attributes: ["product_id", "quantity", "unit_price"],
+          include: [
+            {
+              model: Inventory,
+              attributes: ["name", "image_url", "sku"],
+            },
+          ],
         },
-        // You may also want to include ShippingAddress and PaymentInfo models here if they exist
       ],
     });
 
-    if (!order) return res.status(404).json({ message: "Order not found" });
+    if (!order) {
+      return res.status(404).json({ message: "Order not found" });
+    }
 
     res.json(order);
   } catch (error) {
+    console.error("Get Order Details Error:", error);
     res.status(500).json({ message: error.message });
   }
 };
-
 // Add to adminController.js
 // Don't forget to import the Category model:
 // const Category = require('../models/mongo/Category'); // Assuming this path
@@ -459,7 +485,7 @@ exports.updateCategory = async (req, res) => {
     const updatedCategory = await Category.findOneAndUpdate(
       { category_id: id },
       req.body,
-      { new: true }
+      { new: true },
     );
     if (!updatedCategory)
       return res.status(404).json({ message: "Category not found" });
@@ -479,11 +505,9 @@ exports.deleteCategory = async (req, res) => {
       category_id: id,
     });
     if (productsUsingCategory > 0) {
-      return res
-        .status(400)
-        .json({
-          message: `Cannot delete category: ${productsUsingCategory} products still use it.`,
-        });
+      return res.status(400).json({
+        message: `Cannot delete category: ${productsUsingCategory} products still use it.`,
+      });
     }
 
     await Category.findOneAndDelete({ category_id: id });
@@ -533,12 +557,10 @@ exports.getProductById = async (req, res) => {
     res.json(fullProduct);
   } catch (error) {
     console.error("Error fetching combined product:", error);
-    res
-      .status(500)
-      .json({
-        message: "Internal server error while retrieving product.",
-        error: error.message,
-      });
+    res.status(500).json({
+      message: "Internal server error while retrieving product.",
+      error: error.message,
+    });
   }
 };
 
@@ -560,18 +582,19 @@ const parseDateRange = (req) => {
 
 // GET /api/admin/analytics/overview
 // Query params (optional): from=YYYY-MM-DD, to=YYYY-MM-DD
+// ✅ FIXED: Get Overview Stats - Count ALL orders, not just "Paid"
 exports.getOverviewStats = async (req, res) => {
   try {
     const { start, end } = parseDateRange(req);
 
-    // 👇 IMPORTANT: adjust 'total_amount' and 'status' field names
-    // if your Order model uses different column names.
-    const paidOrderWhere = {
-      status: "Paid", // e.g., 'Paid', 'Completed' – adjust to your enum
+    const allOrderWhere = {
       createdAt: { [Op.between]: [start, end] },
     };
 
-    const allOrderWhere = {
+    // Revenue: Sum from orders with status that indicates payment received
+    const paidStatusList = ["Paid", "Delivered", "Processing", "Shipped"];
+    const paidOrderWhere = {
+      status: { [Op.in]: paidStatusList },
       createdAt: { [Op.between]: [start, end] },
     };
 
@@ -585,7 +608,7 @@ exports.getOverviewStats = async (req, res) => {
       totalCustomers,
       newCustomers,
     ] = await Promise.all([
-      // Total revenue from paid orders
+      // Total revenue from paid/completed orders
       Order.findOne({
         attributes: [
           [fn("COALESCE", fn("SUM", col("total_amount")), 0), "totalRevenue"],
@@ -597,7 +620,7 @@ exports.getOverviewStats = async (req, res) => {
       // Total orders (all statuses)
       Order.count({ where: allOrderWhere }),
 
-      // Paid orders
+      // Paid/Completed orders
       Order.count({ where: paidOrderWhere }),
 
       // Pending payment
@@ -666,11 +689,12 @@ exports.getOverviewStats = async (req, res) => {
   }
 };
 
-// GET /api/admin/analytics/revenue-by-day
-// Query params (optional): from=YYYY-MM-DD, to=YYYY-MM-DD
+// ✅ FIXED: Get Revenue By Day
 exports.getRevenueByDay = async (req, res) => {
   try {
     const { start, end } = parseDateRange(req);
+
+    const paidStatusList = ["Paid", "Delivered", "Processing", "Shipped"];
 
     const rows = await Order.findAll({
       attributes: [
@@ -679,7 +703,7 @@ exports.getRevenueByDay = async (req, res) => {
         [fn("COUNT", col("order_id")), "orders"],
       ],
       where: {
-        status: "Paid", // adjust if needed
+        status: { [Op.in]: paidStatusList },
         createdAt: { [Op.between]: [start, end] },
       },
       group: [literal('DATE("Order"."createdAt")')],
@@ -688,7 +712,7 @@ exports.getRevenueByDay = async (req, res) => {
     });
 
     const result = rows.map((r) => ({
-      date: r.date, // 'YYYY-MM-DD' from DB
+      date: r.date,
       revenue: parseFloat(r.revenue),
       orders: parseInt(r.orders, 10),
     }));
@@ -705,12 +729,13 @@ exports.getRevenueByDay = async (req, res) => {
   }
 };
 
-// GET /api/admin/analytics/top-products
-// Query params: from, to, limit (optional, default 10)
+// ✅ FIXED: Get Top Products
 exports.getTopProducts = async (req, res) => {
   try {
     const { start, end } = parseDateRange(req);
     const limit = parseInt(req.query.limit || "10", 10);
+
+    const paidStatusList = ["Paid", "Delivered", "Processing", "Shipped"];
 
     const rows = await OrderItem.findAll({
       include: [
@@ -718,7 +743,7 @@ exports.getTopProducts = async (req, res) => {
           model: Order,
           attributes: [],
           where: {
-            status: "Paid", // adjust if needed
+            status: { [Op.in]: paidStatusList },
             createdAt: { [Op.between]: [start, end] },
           },
         },
@@ -729,7 +754,7 @@ exports.getTopProducts = async (req, res) => {
         [
           fn(
             "SUM",
-            literal('"OrderItem"."quantity" * "OrderItem"."unit_price"')
+            literal('"OrderItem"."quantity" * "OrderItem"."unit_price"'),
           ),
           "totalRevenue",
         ],
@@ -742,10 +767,9 @@ exports.getTopProducts = async (req, res) => {
 
     const productIds = rows.map((r) => r.product_id);
 
-    // Product basic info from Mongo
     const products = await Product.find(
       { product_id: { $in: productIds } },
-      { product_id: 1, name: 1, category_id: 1 }
+      { product_id: 1, name: 1, category_id: 1 },
     ).lean();
 
     const productMap = {};
@@ -753,7 +777,6 @@ exports.getTopProducts = async (req, res) => {
       productMap[p.product_id] = p;
     });
 
-    // Inventory info from Postgres (SKU, current price, stock)
     const inventories = await Inventory.findAll({
       where: { product_id: productIds },
       raw: true,
@@ -790,12 +813,13 @@ exports.getTopProducts = async (req, res) => {
   }
 };
 
-// GET /api/admin/analytics/top-customers
-// Query params: from, to, limit (optional)
+// ✅ FIXED: Get Top Customers
 exports.getTopCustomers = async (req, res) => {
   try {
     const { start, end } = parseDateRange(req);
     const limit = parseInt(req.query.limit || "10", 10);
+
+    const paidStatusList = ["Paid", "Delivered", "Processing", "Shipped"];
 
     const rows = await Order.findAll({
       attributes: [
@@ -804,7 +828,7 @@ exports.getTopCustomers = async (req, res) => {
         [fn("COUNT", col("order_id")), "orderCount"],
       ],
       where: {
-        status: "Paid",
+        status: { [Op.in]: paidStatusList },
         createdAt: { [Op.between]: [start, end] },
       },
       group: ["user_id"],
@@ -828,7 +852,10 @@ exports.getTopCustomers = async (req, res) => {
       const u = userMap[row.user_id] || {};
       return {
         user_id: row.user_id,
-        name: u.name || u.full_name || null,
+        name:
+          u.first_name && u.last_name
+            ? `${u.first_name} ${u.last_name}`
+            : u.name || u.full_name || null,
         email: u.email || null,
         totalSpent: parseFloat(row.totalSpent),
         orderCount: parseInt(row.orderCount, 10),
@@ -929,14 +956,14 @@ exports.deleteProductImage = async (req, res) => {
     let product = await Product.findOneAndUpdate(
       { product_id: productId },
       { $pull: { images: imageUrl } },
-      { new: true }
+      { new: true },
     );
 
     if (!product) {
       product = await Product.findOneAndUpdate(
         { _id: productId },
         { $pull: { images: imageUrl } },
-        { new: true }
+        { new: true },
       );
     }
 

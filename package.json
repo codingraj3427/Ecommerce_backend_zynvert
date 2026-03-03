@@ -15,7 +15,7 @@
     "mongodb",
     "razorpay"
   ],
-  "author": "Your Name",
+  "author": "Rajarshi Chakraborty",
   "license": "ISC",
   "dependencies": {
     "cloudinary": "^1.41.3",
