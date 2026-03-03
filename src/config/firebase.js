@@ -1,28 +1,27 @@
-const admin = require("firebase-admin");
+const admin = require('firebase-admin');
+const fs = require('fs');
 
 let firebaseApp;
 
-// Check if GOOGLE_APPLICATION_CREDENTIALS is set (typically for local development)
-// and if the service account file exists.
-if (
-  process.env.GOOGLE_APPLICATION_CREDENTIALS &&
-  require("fs").existsSync(process.env.GOOGLE_APPLICATION_CREDENTIALS)
-) {
+if (process.env.GOOGLE_APPLICATION_CREDENTIALS && fs.existsSync(process.env.GOOGLE_APPLICATION_CREDENTIALS)) {
   const serviceAccount = require(process.env.GOOGLE_APPLICATION_CREDENTIALS);
   firebaseApp = admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
   });
-  console.log("Firebase Admin SDK initialized with service account file.");
+  console.log('Firebase Admin SDK initialized with service account file for local development.');
 } else {
-  // Otherwise, initialize without explicit credentials.
-  // This will automatically use Application Default Credentials (ADC),
-  // which means:
-  // - On Cloud Run: it uses the service account attached to the Cloud Run service.
-  // - Locally (if you run `gcloud auth application-default login`): it uses your gcloud user credentials.
-  firebaseApp = admin.initializeApp();
-  console.log(
-    "Firebase Admin SDK initialized with Application Default Credentials.",
-  );
+  // THIS IS THE CRUCIAL PART FOR CLOUD RUN
+  const firebaseProjectId = process.env.FIREBASE_PROJECT_ID;
+
+  if (!firebaseProjectId) {
+    console.error('FIREBASE_PROJECT_ID environment variable is not set. Firebase Admin SDK might not initialize correctly.');
+    firebaseApp = admin.initializeApp(); // Fallback, but will likely lead to this error
+  } else {
+    firebaseApp = admin.initializeApp({
+      projectId: firebaseProjectId, // Explicitly setting the Firebase Project ID
+    });
+    console.log(`Firebase Admin SDK initialized with attached service account and projectId: ${firebaseProjectId}`);
+  }
 }
 
 module.exports = firebaseApp;
