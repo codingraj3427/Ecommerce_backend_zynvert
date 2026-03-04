@@ -25,7 +25,7 @@ const app = express();
 // Enable CORS with specific options
 app.use(
   cors({
-    origin: ["http://localhost:3000", "http://192.168.1.23:3000","https://zynvert-technologies.netlify.app"], // Allow your Frontend URL
+    origin: ["https://zynvert-technologies.netlify.app"], // Allow your Frontend URL
     methods: ["GET", "POST", "PUT", "DELETE"], // Allow these HTTP methods
     allowedHeaders: ["Content-Type", "Authorization"], // Allow these headers
     credentials: true, // Allow cookies/headers to be sent
