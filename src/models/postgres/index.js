@@ -97,6 +97,32 @@ const Inventory = sequelize.define(
   }
 );
 
+
+/* =========================
+   9. Favourite Model  ✅ NEW
+========================= */
+const Favourite = sequelize.define(
+  "Favourite",
+  {
+    favourite_id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true,
+    },
+    user_id: { 
+      type: DataTypes.STRING(128), 
+      allowNull: false 
+    }, // Links to Firebase UID
+    product_id: { 
+      type: DataTypes.STRING(128), 
+      allowNull: false 
+    }, // Links to Inventory.product_id
+  },
+  { 
+    tableName: "favourites", 
+    timestamps: true // Helpful to sort by "recently added"
+  },
+);
 /* =========================
    4. Cart Model  ✅ NEW
 ========================= */
@@ -255,6 +281,21 @@ OrderItem.belongsTo(Inventory, {
 Order.hasMany(Payment, { foreignKey: "order_id" });
 Payment.belongsTo(Order, { foreignKey: "order_id" });
 
+// User → Favourite
+User.hasMany(Favourite, { foreignKey: "user_id", onDelete: "CASCADE" });
+Favourite.belongsTo(User, { foreignKey: "user_id" });
+
+// Inventory → Favourite
+Inventory.hasMany(Favourite, {
+  foreignKey: "product_id",
+  sourceKey: "product_id",
+  onDelete: "CASCADE"
+});
+Favourite.belongsTo(Inventory, {
+  foreignKey: "product_id",
+  targetKey: "product_id",
+});
+
 module.exports = {
   User,
   Address,
@@ -264,4 +305,5 @@ module.exports = {
   Order,
   OrderItem,
   Payment,
+  Favourite, // ✅ Added here
 };

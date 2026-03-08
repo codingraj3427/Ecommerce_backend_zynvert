@@ -15,6 +15,7 @@ const searchRoutes = require("./routes/searchRoutes");
 const requestLogger = require("./middlewares/requestLogger");
 const reviewRoutes = require("./routes/reviewRoute");
 const campaignRoutes = require("./routes/campaignRoute");
+const favouriteRoutes = require("./routes/favouriteRoute");
 
 const app = express();
 
@@ -54,6 +55,7 @@ app.use("/api/send-inquiry", batteryRoutes);
 app.use("/api/search", searchRoutes);
 app.use("/api/reviews", reviewRoutes);
 app.use("/api/admin/campaign", campaignRoutes);
+app.use("/api/favourites", favouriteRoutes);
 // ====================================================================
 // 2. ROUTES
 // ====================================================================

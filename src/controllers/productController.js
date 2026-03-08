@@ -17,7 +17,7 @@ exports.getCategories = async (req, res) => {
 exports.getFeaturedProducts = async (req, res) => {
   try {
     const products = await Product.find({ display_flags: "featured" }).limit(
-      10
+      10,
     );
     res.json(products);
   } catch (error) {
@@ -39,18 +39,16 @@ exports.getProductById = async (req, res) => {
 exports.getProductsByDisplayFlag = async (req, res) => {
   try {
     const { flag } = req.params;
-
-    // support single or multiple flags
-    const flags = flag.split(","); // "popular,home" → ["popular","home"]
+    const flags = flag.split(",");
 
     const products = await Product.find({
       display_flags: { $in: flags },
     }).select(
-      "name product_id category_id images old_price price_display display_flags"
+      // 👇 ADDED sku AND stock HERE 👇
+      "name product_id category_id images old_price price_display display_flags sku stock",
     );
 
     res.json(products);
-    console.log(products);
   } catch (error) {
     console.error("Display flag fetch error:", error);
     res.status(500).json({

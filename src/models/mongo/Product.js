@@ -118,6 +118,9 @@ const productSchema = new mongoose.Schema(
   },
 );
 
+
+
+
 /* ======================================
    🔥 AUTO PRICE HISTORY HANDLER
    When price_display changes:
