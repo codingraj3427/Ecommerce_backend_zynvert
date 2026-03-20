@@ -5,17 +5,17 @@ const razorpay = new Razorpay({
   key_secret: process.env.RAZORPAY_KEY_SECRET,
 });
 
-// Postgres models
 const {
-  User,          // ✅ ADD
+  Payment,
+  User,
   Order,
   OrderItem,
   Cart,
   CartItem,
   Inventory,
+  Coupon, // ✅ ADDED COUPON MODEL HERE
 } = require("../models/postgres");
 
-// Mongo sync
 const Product = require("../models/mongo/Product");
 
 /* ============================================================
@@ -24,13 +24,13 @@ const Product = require("../models/mongo/Product");
 exports.createCheckoutSession = async (req, res) => {
   try {
     const userId = req.user.uid;
-    const { shippingAddress, shippingFee = 0 } = req.body;
+    // ✅ FIXED: Extracted couponCode from req.body
+    const { shippingAddress, shippingFee = 0, couponCode } = req.body; 
 
     if (!shippingAddress) {
       return res.status(400).json({ message: "Shipping address missing" });
     }
 
-    // ✅ FETCH USER PHONE (SOURCE OF TRUTH)
     const user = await User.findByPk(userId);
 
     if (!user || !user.phone_number) {
@@ -40,7 +40,6 @@ exports.createCheckoutSession = async (req, res) => {
       });
     }
 
-    // ✅ LOAD CART
     const cart = await Cart.findOne({
       where: { user_id: userId },
       include: [{ model: CartItem, include: [Inventory] }],
@@ -52,22 +51,53 @@ exports.createCheckoutSession = async (req, res) => {
 
     const itemsTotal = cart.CartItems.reduce(
       (sum, item) => sum + item.quantity * Number(item.Inventory.current_price),
-      0
+      0,
     );
 
-    const finalAmount = itemsTotal + Number(shippingFee);
+    // ✅ NEW SERVER-SIDE COUPON MATH
+    // ==========================================
+    let discountAmount = 0;
+    let appliedCouponId = null;
 
-    // ✅ CREATE ORDER (PHONE FROM USER)
+    if (couponCode) {
+      // ✅ Using the top-level Coupon import
+      const coupon = await Coupon.findOne({ where: { code: couponCode.toUpperCase(), is_active: true } });
+      
+      if (coupon && itemsTotal >= Number(coupon.min_order_value)) {
+        if (coupon.discount_type === 'percentage') {
+          discountAmount = (itemsTotal * Number(coupon.discount_value)) / 100;
+          if (coupon.max_discount_amount) {
+            discountAmount = Math.min(discountAmount, Number(coupon.max_discount_amount));
+          }
+        } else {
+          discountAmount = Number(coupon.discount_value);
+        }
+        
+        discountAmount = Math.min(discountAmount, itemsTotal); // Prevent negative totals
+        appliedCouponId = coupon.coupon_id;
+        
+        // (Optional) Increment coupon usage count here or in confirmPayment
+        // coupon.used_count += 1;
+        // await coupon.save();
+      }
+    }
+
+    // Calculate final amount SECURELY
+    const finalAmount = itemsTotal - discountAmount + Number(shippingFee);
+
     const order = await Order.create({
       user_id: userId,
       shipping_name: shippingAddress.name,
-      shipping_phone: user.phone_number, // ✅ FIX
+      shipping_phone: user.phone_number,
       shipping_line1: shippingAddress.line1,
       shipping_city: shippingAddress.city,
       shipping_state: shippingAddress.state,
       shipping_pincode: shippingAddress.postal_code,
       total_amount: finalAmount,
+      discount_amount: discountAmount,     // ✅ Tracked discount
+      coupon_id: appliedCouponId,          // ✅ Linked to coupon
       status: "Pending Payment",
+      payment_method: "ONLINE",
     });
 
     for (const item of cart.CartItems) {
@@ -76,6 +106,8 @@ exports.createCheckoutSession = async (req, res) => {
         product_id: item.product_id,
         quantity: item.quantity,
         unit_price: Number(item.Inventory.current_price),
+        hsn_code: item.Inventory.hsn_code || "85076000", 
+        gst_rate: Number(item.Inventory.gst_rate) || 18, 
       });
     }
 
@@ -133,13 +165,13 @@ exports.confirmPayment = async (req, res) => {
         if (inventoryItem) {
           inventoryItem.stock_level = Math.max(
             0,
-            inventoryItem.stock_level - item.quantity
+            inventoryItem.stock_level - item.quantity,
           );
           await inventoryItem.save();
 
           await Product.findOneAndUpdate(
             { product_id: item.product_id },
-            { $set: { stock_level: inventoryItem.stock_level } }
+            { $set: { stock_level: inventoryItem.stock_level } },
           );
         }
       }
@@ -163,13 +195,13 @@ exports.confirmPayment = async (req, res) => {
 exports.placeCODOrder = async (req, res) => {
   try {
     const userId = req.user.uid;
-    const { shippingAddress, shippingFee = 0 } = req.body;
+    // ✅ FIXED: Extracted couponCode from req.body
+    const { shippingAddress, shippingFee = 0, couponCode } = req.body;
 
     if (!shippingAddress) {
       return res.status(400).json({ message: "Shipping address missing" });
     }
 
-    // ✅ FETCH USER PHONE
     const user = await User.findByPk(userId);
 
     if (!user || !user.phone_number) {
@@ -190,29 +222,75 @@ exports.placeCODOrder = async (req, res) => {
 
     const itemsTotal = cart.CartItems.reduce(
       (sum, item) => sum + item.quantity * Number(item.Inventory.current_price),
-      0
+      0,
     );
 
-    const finalAmount = itemsTotal + Number(shippingFee);
+   // ✅ NEW SERVER-SIDE COUPON MATH
+    // ==========================================
+    let discountAmount = 0;
+    let appliedCouponId = null;
+
+    if (couponCode) {
+      // ✅ Using the top-level Coupon import
+      const coupon = await Coupon.findOne({ where: { code: couponCode.toUpperCase(), is_active: true } });
+      
+      if (coupon && itemsTotal >= Number(coupon.min_order_value)) {
+        if (coupon.discount_type === 'percentage') {
+          discountAmount = (itemsTotal * Number(coupon.discount_value)) / 100;
+          if (coupon.max_discount_amount) {
+            discountAmount = Math.min(discountAmount, Number(coupon.max_discount_amount));
+          }
+        } else {
+          discountAmount = Number(coupon.discount_value);
+        }
+        
+        discountAmount = Math.min(discountAmount, itemsTotal); // Prevent negative totals
+        appliedCouponId = coupon.coupon_id;
+        
+        // (Optional) Increment coupon usage count here or in confirmPayment
+        // coupon.used_count += 1;
+        // await coupon.save();
+      }
+    }
+
+    // Calculate final amount SECURELY
+    const finalAmount = itemsTotal - discountAmount + Number(shippingFee);
+
 
     const order = await Order.create({
       user_id: userId,
       shipping_name: shippingAddress.name,
-      shipping_phone: user.phone_number, // ✅ FIX
+      shipping_phone: user.phone_number,
       shipping_line1: shippingAddress.line1,
       shipping_city: shippingAddress.city,
       shipping_state: shippingAddress.state,
       shipping_pincode: shippingAddress.postal_code,
+      discount_amount: discountAmount,     // ✅ Tracked discount
+      coupon_id: appliedCouponId,          // ✅ Linked to coupon
       total_amount: finalAmount,
       status: "COD",
+      payment_method: "COD"
+     
     });
 
     for (const item of cart.CartItems) {
+      const finalHsn = item.Inventory?.hsn_code || "85076000";
+      const finalGst = Number(item.Inventory?.gst_rate) || 18;
+
+      console.log("🔥 ABOUT TO SAVE ORDER ITEM:", {
+        orderId: order.order_id,
+        productId: item.product_id,
+        hsn: finalHsn,
+        gst: finalGst,
+      });
+
       await OrderItem.create({
         order_id: order.order_id,
         product_id: item.product_id,
         quantity: item.quantity,
         unit_price: Number(item.Inventory.current_price),
+        hsn_code: finalHsn,
+        gst_rate: finalGst,
       });
     }
 
@@ -224,13 +302,13 @@ exports.placeCODOrder = async (req, res) => {
       if (inventoryItem) {
         inventoryItem.stock_level = Math.max(
           0,
-          inventoryItem.stock_level - item.quantity
+          inventoryItem.stock_level - item.quantity,
         );
         await inventoryItem.save();
 
         await Product.findOneAndUpdate(
           { product_id: item.product_id },
-          { $set: { stock_level: inventoryItem.stock_level } }
+          { $set: { stock_level: inventoryItem.stock_level } },
         );
       }
     }
@@ -241,5 +319,44 @@ exports.placeCODOrder = async (req, res) => {
   } catch (err) {
     console.error("COD Order Error:", err);
     res.status(500).json({ message: "Failed to place COD order" });
+  }
+};
+
+
+/* ============================================================
+   4. PROCESS REFUND (HELPER FUNCTION FOR ORDER CANCELLATION)
+   ============================================================ */
+exports.processRefund = async (orderId, amount, transaction) => {
+  try {
+    const paymentRecord = await Payment.findOne({ 
+      where: { order_id: orderId, status: 'Success' }, // Ensure your confirmPayment sets status to 'Success' or 'Paid'
+      transaction 
+    });
+
+    if (!paymentRecord) {
+      console.warn(`No successful payment record found for order ${orderId}. This might be a COD order or payment failed.`);
+      return false; 
+    }
+
+    // 👇 FIXED: Using razorpay_payment_id to match your database schema
+    if (!paymentRecord.razorpay_payment_id) {
+       console.warn(`Payment record found for order ${orderId}, but no Razorpay payment ID is present.`);
+       return false;
+    }
+
+    console.log(`[Gateway] Initiating refund of ₹${amount} for Razorpay Payment ID: ${paymentRecord.razorpay_payment_id}`);
+    
+    // Call Razorpay API to issue the refund
+    const refund = await razorpay.payments.refund(paymentRecord.razorpay_payment_id, {
+      amount: Math.round(amount * 100) 
+    });
+
+    paymentRecord.status = 'Refunded';
+    await paymentRecord.save({ transaction });
+
+    return true;
+  } catch (error) {
+    console.error("Razorpay Refund Processing Error:", error);
+    throw new Error("GATEWAY_REFUND_FAILED");
   }
 };

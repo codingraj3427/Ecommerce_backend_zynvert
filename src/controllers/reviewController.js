@@ -1,12 +1,13 @@
+// src/controllers/reviewController.js
 const Product = require("../models/mongo/Product");
 
 /* ===============================
-   ADD REVIEW
+   ADD OR UPDATE REVIEW (Upsert)
 ================================= */
 exports.addReview = async (req, res) => {
   try {
     const { productId } = req.params;
-    const { rating, comment, name } = req.body;
+    const { rating, comment } = req.body;
 
     const product = await Product.findOne({ product_id: productId });
 
@@ -14,50 +15,58 @@ exports.addReview = async (req, res) => {
       return res.status(404).json({ message: "Product not found" });
     }
 
-    // Prevent duplicate review
-    const alreadyReviewed = product.reviews.find(
-      (r) => r.user_id === req.user.uid,
-
+    // Find the index of the existing review (if any)
+    const existingReviewIndex = product.reviews.findIndex(
+      (r) => r.user_id === req.user.uid
     );
 
-    if (alreadyReviewed) {
-      return res.status(400).json({
-        message: "You already reviewed this product",
-      });
+    if (existingReviewIndex !== -1) {
+      // 🔄 UPDATE EXISTING REVIEW
+      product.reviews[existingReviewIndex].rating = Number(rating);
+      product.reviews[existingReviewIndex].comment = comment;
+      
+      // Only update the image if a new one is uploaded
+      if (req.file) {
+        product.reviews[existingReviewIndex].image = req.file.path;
+      }
+      
+      // Optionally update the name just in case it changed
+      product.reviews[existingReviewIndex].name = req.user.name || product.reviews[existingReviewIndex].name;
+      
+    } else {
+      // ➕ ADD NEW REVIEW
+      const newReview = {
+        user_id: req.user.uid,
+        name: req.user.name || "User",
+        rating: Number(rating),
+        comment: comment,
+        image: req.file ? req.file.path : "",
+      };
+      product.reviews.push(newReview);
     }
 
-     const review = {
-      user_id: req.user.uid,   // 🔥 FIXED HERE
-      name: req.user.name || "User",
-      rating: Number(req.body.rating),
-      comment: req.body.comment,
-      image: req.file ? req.file.path : "",
-    };
-
-    product.reviews.push(review);
-
-    // Recalculate rating
+    // 🧮 Recalculate ratings
     product.total_reviews = product.reviews.length;
-
     product.average_rating =
       product.reviews.reduce((acc, item) => acc + item.rating, 0) /
       product.total_reviews;
 
     await product.save();
 
-    res.status(201).json(product);
+    // Send back 200 OK (since it handles both create and update now)
+    res.status(200).json(product);
 
   } catch (error) {
     console.error("addReview error:", error);
-    res.status(500).json({ message: "Failed to add review" });
+    res.status(500).json({ message: "Failed to submit review" });
   }
 };
-
 
 /* ===============================
    GET REVIEWS
 ================================= */
 exports.getProductReviews = async (req, res) => {
+  // ... keep your existing getProductReviews code here ...
   try {
     const product = await Product.findOne({
       product_id: req.params.productId,

@@ -1,9 +1,6 @@
 // src/controllers/adminController.js
 
-// ✅ Get the REAL Sequelize instance from your config
 const { sequelize } = require("../config/db.postgres");
-
-// ✅ Get helpers (Op, fn, col, literal) from the Sequelize library
 const { Op, fn, col, literal } = require("sequelize");
 
 const {
@@ -11,16 +8,19 @@ const {
   Order,
   User,
   OrderItem,
+  Payment, // ✅ ADDED Payment
 } = require("../models/postgres/index");
 const Product = require("../models/mongo/Product");
 const Category = require("../models/mongo/Category");
+
+// ✅ IMPORT the refund logic
+const { processRefund } = require("./paymentController");
 
 // 1. Create Product (Polyglot Transaction)
 exports.createProduct = async (req, res) => {
   let t;
 
   try {
-    // Start Postgres Transaction
     t = await sequelize.transaction();
   } catch (error) {
     console.error("Failed to start transaction:", error);
@@ -38,15 +38,20 @@ exports.createProduct = async (req, res) => {
       sku,
       stock_level,
       current_price,
+      base_price,
       category_id,
       name,
       description,
       images,
       technical_specs,
       display_flags,
+      hsn_code,
+      gst_rate,
+      country_of_origin,
+      product_dimension, // ✅ NEW
+      product_weight, // ✅ NEW
     } = req.body;
 
-    // Normalize & validate category_id
     if (!category_id) {
       return res.status(400).json({ message: "category_id is required" });
     }
@@ -60,41 +65,34 @@ exports.createProduct = async (req, res) => {
       });
     }
 
-    // ---------- Normalize / defaults so DB doesn't explode ----------
-
-    // Product ID: always a string, auto-generate if empty
     if (!product_id) {
       product_id = `prod_${Date.now()}`;
     } else {
       product_id = String(product_id);
     }
 
-    // Basic validation
     if (!name) {
       throw new Error("Product name is required");
     }
 
-    // Numbers: make sure they are numeric
     stock_level =
       stock_level === undefined || stock_level === null || stock_level === ""
         ? 0
         : Number(stock_level);
-
     current_price =
       current_price === undefined ||
       current_price === null ||
       current_price === ""
         ? 0
         : Number(current_price);
+    base_price =
+      base_price === undefined || base_price === null || base_price === ""
+        ? 0
+        : Number(base_price);
 
-    if (Number.isNaN(stock_level)) {
-      throw new Error("Invalid stock_level (must be a number)");
-    }
-    if (Number.isNaN(current_price)) {
-      throw new Error("Invalid current_price (must be a number)");
-    }
+    if (Number.isNaN(stock_level)) throw new Error("Invalid stock_level");
+    if (Number.isNaN(current_price)) throw new Error("Invalid current_price");
 
-    // Images: ensure array of strings
     if (!images) {
       images = [];
     } else if (!Array.isArray(images)) {
@@ -103,19 +101,15 @@ exports.createProduct = async (req, res) => {
     images = images.map((img) => String(img));
     const primaryImage = images.length > 0 ? images[0] : null;
 
-    // Technical specs: ensure object
     if (!technical_specs || typeof technical_specs !== "object") {
       technical_specs = { description: technical_specs ?? "" };
     }
 
-    // Display flags: ensure object with booleans
-    // Display flags: ensure array of strings, e.g. ['featured', 'home']
     if (!display_flags) {
       display_flags = [];
     } else if (Array.isArray(display_flags)) {
       display_flags = display_flags.map(String);
     } else {
-      // single value → wrap as array
       display_flags = [String(display_flags)];
     }
 
@@ -127,7 +121,12 @@ exports.createProduct = async (req, res) => {
         sku: sku || null,
         stock_level,
         current_price,
-        image_url: primaryImage, // ✅ STORE IMAGE IN POSTGRES
+        base_price, // ✅ FIXED: Now saving base_price to Postgres
+        hsn_code: hsn_code || "85076000", // ✅ FIXED: Saving HSN to Postgres
+        gst_rate: Number(gst_rate) || 18, // ✅ FIXED: Saving GST to Postgres
+        product_dimension: product_dimension || null, // ✅ NEW
+        product_weight: product_weight ? Number(product_weight) : null, // ✅ NEW
+        image_url: primaryImage,
       },
       { transaction: t },
     );
@@ -135,21 +134,26 @@ exports.createProduct = async (req, res) => {
     // ---------- B. Create Product in Mongo ----------
     const newProduct = new Product({
       product_id,
+      sku: sku || null,
       category_id: category_id || null,
       name,
       description: description || "",
       stock_level,
       price_display: current_price,
+      base_price,
+      hsn_code: hsn_code || "",
+      gst_rate: Number(gst_rate) || 0,
+      country_of_origin: country_of_origin || "India",
+      product_dimension: product_dimension || "", // ✅ NEW
+      product_weight: product_weight ? Number(product_weight) : 0, // ✅ NEW
       images,
       technical_specs,
       display_flags,
     });
 
     await newProduct.save();
-
     await t.commit();
 
-    // Return combined info (or just a success message if you prefer)
     return res.status(201).json({
       message: "Product created successfully in both databases",
       product: newProduct,
@@ -174,7 +178,7 @@ exports.updateProductDetails = async (req, res) => {
   delete req.body.current_price;
 
   try {
-    const { id } = req.params; // Expecting product_id (e.g., "prod_zynvert_100")
+    const { id } = req.params;
     const updateData = req.body;
 
     const updatedProduct = await Product.findOneAndUpdate(
@@ -200,13 +204,17 @@ exports.updateProductDetails = async (req, res) => {
 };
 
 // 3. Update Inventory (Postgres Only)
-// adminController.js
 exports.updateInventory = async (req, res) => {
   try {
     const { productId } = req.params;
-    const { stock_level, current_price } = req.body;
+    const {
+      stock_level,
+      current_price,
+      base_price,
+      product_weight,
+      product_dimension,
+    } = req.body;
 
-    // 1️⃣ Update Postgres Inventory
     const inventory = await Inventory.findOne({
       where: { product_id: productId },
     });
@@ -215,23 +223,25 @@ exports.updateInventory = async (req, res) => {
       return res.status(404).json({ message: "Inventory not found" });
     }
 
-    if (stock_level !== undefined) {
-      inventory.stock_level = Number(stock_level);
-    }
-
-    if (current_price !== undefined) {
+    if (stock_level !== undefined) inventory.stock_level = Number(stock_level);
+    if (current_price !== undefined)
       inventory.current_price = Number(current_price);
-    }
+
+    // Allow updating new fields via inventory updates too
+    if (base_price !== undefined) inventory.base_price = Number(base_price);
+    if (product_weight !== undefined)
+      inventory.product_weight = Number(product_weight);
+    if (product_dimension !== undefined)
+      inventory.product_dimension = product_dimension;
 
     await inventory.save();
 
-    // 2️⃣ Sync Mongo Product price
     if (current_price !== undefined) {
       const product = await Product.findOne({ product_id: productId });
 
       if (product && product.price_display !== Number(current_price)) {
-        product.old_price = product.price_display; // store previous price
-        product.price_display = Number(current_price); // new price
+        product.old_price = product.price_display;
+        product.price_display = Number(current_price);
         await product.save();
       }
     }
@@ -244,18 +254,12 @@ exports.updateInventory = async (req, res) => {
 };
 
 // 4. Delete Product (Both DBs)
-// adminController.js
-
-// ... (Make sure you have imported sequelize)
-// 4. Delete Product (Both DBs)
-// 4. Delete Product (Both DBs)
 exports.deleteProduct = async (req, res) => {
   const t = await sequelize.transaction();
 
   try {
-    const { id } = req.params; // The product_id to delete
+    const { id } = req.params;
 
-    // 1. Check for active/pending orders referencing this product_id
     const activeOrdersCount = await OrderItem.count({
       where: { product_id: id },
       include: [
@@ -263,7 +267,6 @@ exports.deleteProduct = async (req, res) => {
           model: Order,
           where: {
             status: {
-              // ✅ use Op.notIn, not sequelize.Op.notIn
               [Op.notIn]: ["DELIVERED", "CANCELLED", "RETURNED"],
             },
           },
@@ -272,7 +275,7 @@ exports.deleteProduct = async (req, res) => {
       ],
       transaction: t,
     });
-    console.log(`Active orders count for product ${id}:`, activeOrdersCount);
+
     if (activeOrdersCount > 0) {
       await t.rollback();
       return res.status(400).json({
@@ -280,7 +283,6 @@ exports.deleteProduct = async (req, res) => {
       });
     }
 
-    // 2. Delete from Postgres (Inventory)
     const deletedCount = await Inventory.destroy({
       where: { product_id: id },
       transaction: t,
@@ -293,9 +295,7 @@ exports.deleteProduct = async (req, res) => {
         .json({ message: "Product not found in inventory" });
     }
 
-    // 3. Delete from Mongo (Catalog)
     await Product.findOneAndDelete({ product_id: id });
-
     await t.commit();
     return res.json({ message: "Product deleted successfully" });
   } catch (error) {
@@ -308,8 +308,7 @@ exports.deleteProduct = async (req, res) => {
   }
 };
 
-// 5. Get All Orders
-// 5. Get All Orders (✅ FIXED)
+// 5. Get All Orders (SUMMARY LIST ONLY)
 // 5. Get All Orders (SUMMARY LIST ONLY)
 exports.getAllOrders = async (req, res) => {
   try {
@@ -322,7 +321,8 @@ exports.getAllOrders = async (req, res) => {
         "total_amount",
         "shipping_city",
         "shipping_name",
-        "shipping_line1", // ✅ ADD THIS
+        "shipping_line1",
+        "payment_method", // ✅ ADD THIS LINE SO THE FRONTEND CAN SEE IT
       ],
       include: [
         {
@@ -358,9 +358,6 @@ exports.updateOrderStatus = async (req, res) => {
     if (tracking_url) order.tracking_url = tracking_url;
 
     await order.save();
-
-    // TODO: Trigger Email Notification Service here
-
     res.json({ message: "Order status updated", order });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -371,7 +368,7 @@ exports.updateOrderStatus = async (req, res) => {
 exports.getAllCustomers = async (req, res) => {
   try {
     const customers = await User.findAll({
-      attributes: { exclude: ["is_admin"] }, // Don't verify admins here
+      attributes: { exclude: ["is_admin"] },
     });
     res.json(customers);
   } catch (error) {
@@ -379,7 +376,6 @@ exports.getAllCustomers = async (req, res) => {
   }
 };
 
-// Add to adminController.js
 // 8. Get All Products (with Pagination, Search, Filter)
 exports.getAllProducts = async (req, res) => {
   try {
@@ -388,10 +384,10 @@ exports.getAllProducts = async (req, res) => {
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
     if (search) {
-      query.name = { $regex: search, $options: "i" }; // Case-insensitive search
+      query.name = { $regex: search, $options: "i" };
     }
     if (category) {
-      query.category_id = category; // Assuming category_id is stored
+      query.category_id = category;
     }
 
     const products = await Product.find(query)
@@ -412,17 +408,11 @@ exports.getAllProducts = async (req, res) => {
   }
 };
 
-// Add to adminController.js
-// 9. Get Order Details (with Items and User)
-// 9. Get Order Full Details
 // 9. Get Order Full Details
 exports.getOrderById = async (req, res) => {
   try {
     const { id } = req.params;
 
-    console.log("Fetching order with id:", id); // Debug log
-
-    // Try finding by order_id first
     let order = await Order.findOne({
       where: { order_id: id },
       include: [
@@ -436,16 +426,14 @@ exports.getOrderById = async (req, res) => {
           include: [
             {
               model: Inventory,
-              attributes: ["name", "image_url", "sku"],
+              attributes: ["name", "image_url", "sku", "hsn_code"],
             },
           ],
         },
       ],
     });
 
-    if (!order) {
-      return res.status(404).json({ message: "Order not found" });
-    }
+    if (!order) return res.status(404).json({ message: "Order not found" });
 
     res.json(order);
   } catch (error) {
@@ -453,9 +441,6 @@ exports.getOrderById = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
-// Add to adminController.js
-// Don't forget to import the Category model:
-// const Category = require('../models/mongo/Category'); // Assuming this path
 
 // 10. Create Category
 exports.createCategory = async (req, res) => {
@@ -481,7 +466,7 @@ exports.getAllCategories = async (req, res) => {
 // 12. Update Category
 exports.updateCategory = async (req, res) => {
   try {
-    const { id } = req.params; // category_id from the URL
+    const { id } = req.params;
     const updatedCategory = await Category.findOneAndUpdate(
       { category_id: id },
       req.body,
@@ -497,7 +482,6 @@ exports.updateCategory = async (req, res) => {
 
 // 13. Delete Category
 exports.deleteCategory = async (req, res) => {
-  // IMPORTANT: Add a check here to ensure no products are using this category_id
   try {
     const { id } = req.params;
 
@@ -517,23 +501,16 @@ exports.deleteCategory = async (req, res) => {
   }
 };
 
-// Add this to your adminController.js
-
 /**
  * Get Product By ID (Combined Mongo & Postgres Data)
- * Fetches catalog details from MongoDB and inventory/pricing from PostgreSQL.
  */
 exports.getProductById = async (req, res) => {
   try {
-    const { id } = req.params; // Expecting the shared product_id
+    const { id } = req.params;
 
-    // 1. Fetch from MongoDB (Catalog/Display Data)
     const productMongo = await Product.findOne({ product_id: id });
-
-    // 2. Fetch from PostgreSQL (Inventory/Stock Data)
     const inventoryPostgres = await Inventory.findOne({
       where: { product_id: id },
-      // Select only the attributes the admin needs for inventory/editing
       attributes: [
         "sku",
         "stock_level",
@@ -544,14 +521,12 @@ exports.getProductById = async (req, res) => {
     });
 
     if (!productMongo) {
-      // If the catalog entry is missing, the product cannot be viewed
       return res.status(404).json({ message: "Product not found in catalog." });
     }
 
-    // Combine the data using the spread operator
     const fullProduct = {
-      ...productMongo.toObject(), // Convert Mongoose document to a plain object
-      inventory: inventoryPostgres ? inventoryPostgres.toJSON() : null, // Attach inventory data
+      ...productMongo.toObject(),
+      inventory: inventoryPostgres ? inventoryPostgres.toJSON() : null,
     };
 
     res.json(fullProduct);
@@ -564,25 +539,20 @@ exports.getProductById = async (req, res) => {
   }
 };
 
-// ===== Helper: Parse date range from query (for analytics) =====
 const parseDateRange = (req) => {
-  let { from, to } = req.query; // expected format: YYYY-MM-DD (optional)
+  let { from, to } = req.query;
 
   const end = to ? new Date(to) : new Date();
   const start = from
     ? new Date(from)
-    : new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000); // last 30 days by default
+    : new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-  // Normalize to day boundaries
   start.setHours(0, 0, 0, 0);
   end.setHours(23, 59, 59, 999);
 
   return { start, end };
 };
 
-// GET /api/admin/analytics/overview
-// Query params (optional): from=YYYY-MM-DD, to=YYYY-MM-DD
-// ✅ FIXED: Get Overview Stats - Count ALL orders, not just "Paid"
 exports.getOverviewStats = async (req, res) => {
   try {
     const { start, end } = parseDateRange(req);
@@ -591,7 +561,6 @@ exports.getOverviewStats = async (req, res) => {
       createdAt: { [Op.between]: [start, end] },
     };
 
-    // Revenue: Sum from orders with status that indicates payment received
     const paidStatusList = ["Paid", "Delivered", "Processing", "Shipped"];
     const paidOrderWhere = {
       status: { [Op.in]: paidStatusList },
@@ -608,7 +577,6 @@ exports.getOverviewStats = async (req, res) => {
       totalCustomers,
       newCustomers,
     ] = await Promise.all([
-      // Total revenue from paid/completed orders
       Order.findOne({
         attributes: [
           [fn("COALESCE", fn("SUM", col("total_amount")), 0), "totalRevenue"],
@@ -616,44 +584,22 @@ exports.getOverviewStats = async (req, res) => {
         where: paidOrderWhere,
         raw: true,
       }),
-
-      // Total orders (all statuses)
       Order.count({ where: allOrderWhere }),
-
-      // Paid/Completed orders
       Order.count({ where: paidOrderWhere }),
-
-      // Pending payment
       Order.count({
-        where: {
-          ...allOrderWhere,
-          status: "Pending Payment",
-        },
+        where: { ...allOrderWhere, status: "Pending Payment" },
       }),
-
-      // Cancelled orders
       Order.count({
-        where: {
-          ...allOrderWhere,
-          status: "Cancelled",
-        },
+        where: { ...allOrderWhere, status: "Cancelled" },
       }),
-
-      // Unique customers who ordered in this period
       Order.count({
         where: allOrderWhere,
         distinct: true,
         col: "user_id",
       }),
-
-      // Total customers in system
       User.count(),
-
-      // New customers created in this period
       User.count({
-        where: {
-          createdAt: { [Op.between]: [start, end] },
-        },
+        where: { createdAt: { [Op.between]: [start, end] } },
       }),
     ]);
 
@@ -661,20 +607,9 @@ exports.getOverviewStats = async (req, res) => {
     const averageOrderValue = paidOrders > 0 ? totalRevenue / paidOrders : 0;
 
     return res.json({
-      range: {
-        from: start,
-        to: end,
-      },
-      revenue: {
-        totalRevenue,
-        averageOrderValue,
-      },
-      orders: {
-        totalOrders,
-        paidOrders,
-        pendingOrders,
-        cancelledOrders,
-      },
+      range: { from: start, to: end },
+      revenue: { totalRevenue, averageOrderValue },
+      orders: { totalOrders, paidOrders, pendingOrders, cancelledOrders },
       customers: {
         distinctCustomersInRange: distinctCustomers,
         totalCustomers,
@@ -689,11 +624,9 @@ exports.getOverviewStats = async (req, res) => {
   }
 };
 
-// ✅ FIXED: Get Revenue By Day
 exports.getRevenueByDay = async (req, res) => {
   try {
     const { start, end } = parseDateRange(req);
-
     const paidStatusList = ["Paid", "Delivered", "Processing", "Shipped"];
 
     const rows = await Order.findAll({
@@ -717,10 +650,7 @@ exports.getRevenueByDay = async (req, res) => {
       orders: parseInt(r.orders, 10),
     }));
 
-    return res.json({
-      range: { from: start, to: end },
-      days: result,
-    });
+    return res.json({ range: { from: start, to: end }, days: result });
   } catch (error) {
     console.error("getRevenueByDay error:", error);
     return res
@@ -729,12 +659,10 @@ exports.getRevenueByDay = async (req, res) => {
   }
 };
 
-// ✅ FIXED: Get Top Products
 exports.getTopProducts = async (req, res) => {
   try {
     const { start, end } = parseDateRange(req);
     const limit = parseInt(req.query.limit || "10", 10);
-
     const paidStatusList = ["Paid", "Delivered", "Processing", "Shipped"];
 
     const rows = await OrderItem.findAll({
@@ -801,10 +729,7 @@ exports.getTopProducts = async (req, res) => {
       };
     });
 
-    return res.json({
-      range: { from: start, to: end },
-      items: result,
-    });
+    return res.json({ range: { from: start, to: end }, items: result });
   } catch (error) {
     console.error("getTopProducts error:", error);
     return res
@@ -813,12 +738,10 @@ exports.getTopProducts = async (req, res) => {
   }
 };
 
-// ✅ FIXED: Get Top Customers
 exports.getTopCustomers = async (req, res) => {
   try {
     const { start, end } = parseDateRange(req);
     const limit = parseInt(req.query.limit || "10", 10);
-
     const paidStatusList = ["Paid", "Delivered", "Processing", "Shipped"];
 
     const rows = await Order.findAll({
@@ -862,10 +785,7 @@ exports.getTopCustomers = async (req, res) => {
       };
     });
 
-    return res.json({
-      range: { from: start, to: end },
-      customers: result,
-    });
+    return res.json({ range: { from: start, to: end }, customers: result });
   } catch (error) {
     console.error("getTopCustomers error:", error);
     return res
@@ -874,16 +794,10 @@ exports.getTopCustomers = async (req, res) => {
   }
 };
 
-// Upload a single product image (Cloudinary via multer) and return URL
 exports.uploadProductImage = async (req, res) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ message: "No file uploaded" });
-    }
-
-    // multer-storage-cloudinary puts the Cloudinary URL here
-    const imageUrl = req.file.path; // e.g. https://res.cloudinary.com/.../image/upload/....
-
+    if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+    const imageUrl = req.file.path;
     return res.status(201).json({ url: imageUrl });
   } catch (error) {
     console.error("uploadProductImage error:", error);
@@ -892,39 +806,30 @@ exports.uploadProductImage = async (req, res) => {
       .json({ message: error.message || "Failed to upload image" });
   }
 };
-// Helper: extract Cloudinary public_id (with folder) from URL
-// Helper: extract Cloudinary public_id (with folder) from URL
+
 function extractCloudinaryPublicId(imageUrl) {
   try {
     const url = new URL(imageUrl);
     const parts = url.pathname.split("/");
 
-    // Example:
-    // /dhbjxspxa/image/upload/v1765379586/products/qx1qsnjpuo5cstlry0yq.jpg
-    //            0    1      2      3             4        5
     const uploadIndex = parts.findIndex((p) => p === "upload");
     if (uploadIndex === -1) {
-      // fallback: filename without extension
       const last = parts[parts.length - 1];
       return last.split(".").slice(0, -1).join(".");
     }
 
-    // Everything after "upload"
-    let publicIdParts = parts.slice(uploadIndex + 1); // ["v1765...", "products", "file.jpg"]
+    let publicIdParts = parts.slice(uploadIndex + 1);
 
-    // If first part looks like a version (v + digits), drop it
     if (/^v\d+$/.test(publicIdParts[0])) {
-      publicIdParts = publicIdParts.slice(1); // ["products", "file.jpg"]
+      publicIdParts = publicIdParts.slice(1);
     }
 
-    // Remove extension from last segment
     const last = publicIdParts[publicIdParts.length - 1];
     publicIdParts[publicIdParts.length - 1] = last
       .split(".")
       .slice(0, -1)
       .join(".");
 
-    // -> "products/qx1qsnjpuo5cstlry0yq"
     return publicIdParts.join("/");
   } catch (err) {
     console.error("Failed to parse Cloudinary public_id from URL:", err);
@@ -932,27 +837,20 @@ function extractCloudinaryPublicId(imageUrl) {
   }
 }
 
-// DELETE /admin/products/:productId/images
 exports.deleteProductImage = async (req, res) => {
   const { productId } = req.params;
   const { imageUrl } = req.body;
 
-  if (!imageUrl) {
+  if (!imageUrl)
     return res.status(400).json({ message: "imageUrl is required" });
-  }
 
   try {
-    // 1) Delete from Cloudinary (best-effort)
     const publicId = extractCloudinaryPublicId(imageUrl);
     if (publicId) {
       const cldRes = await cloudinary.uploader.destroy(publicId);
       console.log("Cloudinary destroy result:", cldRes);
-    } else {
-      console.warn("No publicId parsed for imageUrl:", imageUrl);
     }
 
-    // 2) Remove URL from product document
-    //    Try product_id first, then fallback to Mongo _id
     let product = await Product.findOneAndUpdate(
       { product_id: productId },
       { $pull: { images: imageUrl } },
@@ -967,18 +865,149 @@ exports.deleteProductImage = async (req, res) => {
       );
     }
 
-    if (!product) {
-      return res.status(404).json({ message: "Product not found" });
-    }
+    if (!product) return res.status(404).json({ message: "Product not found" });
 
-    return res.json({
-      message: "Image deleted",
-      product,
-    });
+    return res.json({ message: "Image deleted", product });
   } catch (err) {
     console.error("deleteProductImage error:", err);
     return res
       .status(500)
       .json({ message: err.message || "Failed to delete image" });
+  }
+};
+
+// 14. Generate AWB & Assign Courier (100% ISOLATED TEST MODE)
+exports.generateAWB = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { weight, length, width, height } = req.body;
+
+    if (!weight || !length || !width || !height) {
+      return res
+        .status(400)
+        .json({ message: "Package dimensions and weight are required." });
+    }
+
+    const order = await Order.findOne({ where: { order_id: id } });
+    if (!order) return res.status(404).json({ message: "Order not found" });
+
+    const srResponse = {
+      data: {
+        awb_code: "AWB" + Math.floor(Math.random() * 1000000000),
+        courier_name: "Test Courier (Delhivery)",
+      },
+    };
+
+    if (srResponse.data && srResponse.data.awb_code) {
+      order.tracking_number = srResponse.data.awb_code;
+      order.carrier_name = srResponse.data.courier_name;
+      order.tracking_url = `https://shiprocket.co/tracking/${srResponse.data.awb_code}`;
+      order.status = "Shipped";
+
+      await order.save();
+
+      return res.json({
+        message: "TEST MODE: AWB Generated Successfully",
+        order,
+        shiprocket_response: srResponse.data,
+      });
+    } else {
+      throw new Error("Shiprocket did not return an AWB code.");
+    }
+  } catch (error) {
+    console.error("Test API Error:", error.message);
+    res.status(500).json({
+      message: "Failed to generate test AWB",
+      error: error.message,
+    });
+  }
+};
+
+//==========================================
+// ✅ NEW: Admin Force Cancel Order
+// ==========================================
+exports.cancelOrder = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const result = await sequelize.transaction(async (t) => {
+      // 1. Fetch the order (No user_id restriction because this is admin)
+      const order = await Order.findOne({
+        where: { order_id: id },
+        include: [{ model: OrderItem }],
+        transaction: t,
+      });
+
+      if (!order) throw new Error("ORDER_NOT_FOUND");
+
+      // 2. Prevent cancellation if it's too late
+      const nonCancellableStatuses = ["Shipped", "Delivered", "Cancelled"];
+      if (nonCancellableStatuses.includes(order.status)) {
+        throw new Error(`STATUS_INVALID_${order.status}`);
+      }
+
+      // 3. Process Refund if Paid
+      if (order.status === "Paid") {
+        // Calls the Razorpay refund helper
+        await processRefund(order.order_id, order.total_amount, t);
+      }
+
+      // 4. Restock Inventory in BOTH PostgreSQL and MongoDB
+      if (order.OrderItems && order.OrderItems.length > 0) {
+        for (const item of order.OrderItems) {
+          // Postgres
+          const inventoryItem = await Inventory.findOne({
+            where: { product_id: item.product_id },
+            transaction: t,
+          });
+
+          if (inventoryItem) {
+            inventoryItem.stock_level =
+              inventoryItem.stock_level + item.quantity;
+            await inventoryItem.save({ transaction: t });
+
+            // Mongo
+            await Product.findOneAndUpdate(
+              { product_id: item.product_id },
+              { $set: { stock_level: inventoryItem.stock_level } },
+            );
+          }
+        }
+      }
+
+      // 5. Update Order Status
+      order.status = "Cancelled";
+      // Log that an admin forced this cancellation
+      order.cancellation_reason = "Cancelled by Administrator";
+
+      await order.save({ transaction: t });
+
+      return order; // Commits the transaction
+    });
+
+    res.status(200).json({
+      message: "Order cancelled successfully by Admin.",
+      order: result,
+    });
+  } catch (error) {
+    if (error.message === "ORDER_NOT_FOUND") {
+      return res.status(404).json({ message: "Order not found." });
+    }
+    if (error.message.startsWith("STATUS_INVALID_")) {
+      const status = error.message.split("_").pop();
+      return res
+        .status(400)
+        .json({ message: `Cannot cancel an order that is already ${status}.` });
+    }
+    if (error.message === "GATEWAY_REFUND_FAILED") {
+      return res
+        .status(500)
+        .json({
+          message: "Failed to process Razorpay refund. Order not cancelled.",
+        });
+    }
+
+    console.error("Admin Cancel Order Error:", error);
+    res.status(500).json({ message: "Failed to cancel the order." });
   }
 };

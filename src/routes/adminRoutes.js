@@ -1,13 +1,13 @@
 // src/routes/adminRoutes.js
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const adminController = require('../controllers/adminController');
-const verifyToken = require('../middlewares/authMiddleware');
-const verifyAdmin = require('../middlewares/adminMiddleware');
-const auditLogger = require('../middlewares/auditLogMiddleware');
-const adminAnalyticsController = require('../controllers/adminAnalyticsController');
+const adminController = require("../controllers/adminController");
+const verifyToken = require("../middlewares/authMiddleware");
+const verifyAdmin = require("../middlewares/adminMiddleware");
+const auditLogger = require("../middlewares/auditLogMiddleware");
+const adminAnalyticsController = require("../controllers/adminAnalyticsController");
 const upload = require("../middlewares/upload");
-const adminReviewController = require('../controllers/adminReviewController');
+const adminReviewController = require("../controllers/adminReviewController");
 
 // All admin routes need: valid Firebase token + is_admin = true
 router.use(verifyToken, verifyAdmin);
@@ -18,85 +18,76 @@ router.use(verifyToken, verifyAdmin);
 
 // Create product (Postgres + Mongo)
 router.post(
-  '/products',
-  auditLogger('CREATE_PRODUCT'),
-  adminController.createProduct
+  "/products",
+  auditLogger("CREATE_PRODUCT"),
+  adminController.createProduct,
 );
 
 // List all products (with inventory)
-router.get('/products', adminController.getAllProducts);
+router.get("/products", adminController.getAllProducts);
 
 // Get single product with inventory
-router.get('/products/:id', adminController.getProductById);
-
+router.get("/products/:id", adminController.getProductById);
 
 // Update product details (Mongo only or combined as you implemented)
 router.put(
-  '/products/:id',
-  auditLogger('UPDATE_PRODUCT'),
-  adminController.updateProductDetails
+  "/products/:id",
+  auditLogger("UPDATE_PRODUCT"),
+  adminController.updateProductDetails,
 );
-
 
 // 🔥 INVENTORY UPDATE (Postgres + Mongo price sync)
 router.put(
-  '/inventory/:productId',
-  auditLogger('UPDATE_INVENTORY'),
-  adminController.updateInventory
+  "/inventory/:productId",
+  auditLogger("UPDATE_INVENTORY"),
+  adminController.updateInventory,
 );
-
-
-
 
 // Delete product
 router.delete(
-  '/products/:id',
-  auditLogger('DELETE_PRODUCT'),
-  adminController.deleteProduct
+  "/products/:id",
+  auditLogger("DELETE_PRODUCT"),
+  adminController.deleteProduct,
 );
 
 // ==========================
 // ORDERS
 // ==========================
 
-router.get('/orders', adminController.getAllOrders);
-router.get('/orders/:id', adminController.getOrderById);
+router.get("/orders", adminController.getAllOrders);
+router.get("/orders/:id", adminController.getOrderById);
 
 router.put(
-  '/orders/:id/status',
-  auditLogger('UPDATE_ORDER_STATUS'),
-  adminController.updateOrderStatus
+  "/orders/:id/status",
+  auditLogger("UPDATE_ORDER_STATUS"),
+  adminController.updateOrderStatus,
 );
-
-
-
-
 
 // ==========================
 // CUSTOMERS
 // ==========================
 
-router.get('/customers', adminController.getAllCustomers);
+router.get("/customers", adminController.getAllCustomers);
 
 // ==========================
 // CATEGORIES (Mongo)
 // ==========================
 
 router.post(
-  '/categories',
-  auditLogger('CREATE_CATEGORY'),
-  adminController.createCategory
+  "/categories",
+  auditLogger("CREATE_CATEGORY"),
+  adminController.createCategory,
 );
-router.get('/categories', adminController.getAllCategories);
+router.get("/categories", adminController.getAllCategories);
 router.put(
-  '/categories/:id',
-  auditLogger('UPDATE_CATEGORY'),
-  adminController.updateCategory
+  "/categories/:id",
+  auditLogger("UPDATE_CATEGORY"),
+  adminController.updateCategory,
 );
 router.delete(
-  '/categories/:id',
-  auditLogger('DELETE_CATEGORY'),
-  adminController.deleteCategory
+  "/categories/:id",
+  auditLogger("DELETE_CATEGORY"),
+  adminController.deleteCategory,
 );
 
 // ==========================
@@ -104,39 +95,61 @@ router.delete(
 // ==========================
 
 // High-level stats (revenue, orders, customers, AOV)
-router.get('/analytics/overview', adminAnalyticsController.getOverviewStats);
+router.get("/analytics/overview", adminAnalyticsController.getOverviewStats);
 
 // Revenue and orders grouped by day (for charts)
-router.get('/analytics/revenue-by-day', adminAnalyticsController.getRevenueByDay);
+router.get(
+  "/analytics/revenue-by-day",
+  adminAnalyticsController.getRevenueByDay,
+);
 
 // Top products by revenue / quantity
-router.get('/analytics/top-products', adminAnalyticsController.getTopProducts);
+router.get("/analytics/top-products", adminAnalyticsController.getTopProducts);
 
 // Top customers by spend (optional)
-router.get('/analytics/top-customers', adminAnalyticsController.getTopCustomers);
+router.get(
+  "/analytics/top-customers",
+  adminAnalyticsController.getTopCustomers,
+);
 
 //Uplaod Image Route is here
 // Upload a single product image to Cloudinary and return its URL
 router.post(
   "/products/upload-image",
   upload.single("image"),
-  adminController.uploadProductImage
+  adminController.uploadProductImage,
 );
 
 // Delete a single product image (Cloudinary + Mongo)
 router.delete(
   "/products/:productId/images",
-  adminController.deleteProductImage
+  adminController.deleteProductImage,
 );
 
+// courier tracking
+
+router.post(
+  "/orders/:id/generate-awb",
+  auditLogger("GENERATE_AWB"),
+  adminController.generateAWB,
+);
 
 // ==========================
 // REVIEWS (Admin)
 // ==========================
 
-router.get('/reviews', adminReviewController.getAllReviews);
-router.delete('/reviews/:productId/:reviewId', adminReviewController.deleteReview);
-router.put('/reviews/:productId/:reviewId', adminReviewController.updateReview);
+router.get("/reviews", adminReviewController.getAllReviews);
+router.delete(
+  "/reviews/:productId/:reviewId",
+  adminReviewController.deleteReview,
+);
+router.put("/reviews/:productId/:reviewId", adminReviewController.updateReview);
 
+// ✅ NEW: Admin Cancel Order Route
+router.put(
+  "/orders/:id/cancel",
+  auditLogger("CANCEL_ORDER"), // Great place to use your audit logger!
+  adminController.cancelOrder,
+);
 
 module.exports = router;

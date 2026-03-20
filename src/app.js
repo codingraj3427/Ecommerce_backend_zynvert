@@ -16,6 +16,7 @@ const requestLogger = require("./middlewares/requestLogger");
 const reviewRoutes = require("./routes/reviewRoute");
 const campaignRoutes = require("./routes/campaignRoute");
 const favouriteRoutes = require("./routes/favouriteRoute");
+const couponRoutes = require("./routes/couponRoutes");
 
 const app = express();
 
@@ -28,7 +29,7 @@ app.use(
   cors({
     origin: [
       "http://localhost:3000",
-      "http://192.168.1.23:3000",
+      "http://192.168.1.13:3000",
       "https://zynvert-technologies.netlify.app",
     ], // Allow your Frontend URL
     methods: ["GET", "POST", "PUT", "DELETE"], // Allow these HTTP methods
@@ -56,6 +57,8 @@ app.use("/api/search", searchRoutes);
 app.use("/api/reviews", reviewRoutes);
 app.use("/api/admin/campaign", campaignRoutes);
 app.use("/api/favourites", favouriteRoutes);
+app.use("/api/coupons", couponRoutes);
+
 // ====================================================================
 // 2. ROUTES
 // ====================================================================

@@ -24,4 +24,8 @@ router.get('/', orderController.getMyOrders);
    ============================================================ */
 router.get('/:id', orderController.getOrderById);
 
+
+// ✅ NEW: The Cancellation Route
+router.put('/:id/cancel', verifyToken, orderController.cancelOrder);
+
 module.exports = router;

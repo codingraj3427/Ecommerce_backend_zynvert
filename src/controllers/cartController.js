@@ -1,3 +1,5 @@
+// src/controllers/cartController.js
+
 const { Cart, CartItem, Inventory } = require('../models/postgres/index');
 
 // Helper: Find or Create Cart for User
@@ -18,7 +20,11 @@ exports.getCart = async (req, res) => {
       include: [
         {
           model: CartItem,
-          include: [{ model: Inventory, attributes: ['product_id', 'sku', 'name', 'current_price', 'stock_level'] }] 
+          include: [{ 
+            model: Inventory, 
+            // ✅ ADDED TAX FIELDS HERE
+            attributes: ['product_id', 'sku', 'name', 'current_price', 'base_price', 'hsn_code', 'gst_rate', 'stock_level'] 
+          }] 
         }
       ]
     });
@@ -29,6 +35,7 @@ exports.getCart = async (req, res) => {
 
     res.json(cart);
   } catch (error) {
+    console.error("Get Cart Error:", error);
     res.status(500).json({ message: error.message });
   }
 };
@@ -66,19 +73,20 @@ exports.addToCart = async (req, res) => {
         cart_id: cart.cart_id,
         product_id: productId,
         quantity: quantity,
-        image: req.body.image || null, // ✅ SAVE IMAGE
+        image: req.body.image || null, 
       });
     }
 
     res.status(200).json({ message: 'Item added to cart' });
   } catch (error) {
+    console.error("Add to Cart Error:", error);
     res.status(500).json({ message: error.message });
   }
 };
 
 // 3. Update Quantity Logic
 exports.updateCartItem = async (req, res) => {
-  const { quantity } = req.body; // New absolute quantity (e.g., 5)
+  const { quantity } = req.body; 
   const { itemId } = req.params;
 
   try {
