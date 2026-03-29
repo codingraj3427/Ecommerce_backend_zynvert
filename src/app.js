@@ -31,7 +31,7 @@ app.use(
       "http://localhost:3000",
       "http://192.168.1.13:3000",
       "https://zynvert-technologies.netlify.app",
-      "https://www.zynventics.com",
+      "https://zynventics.com",
     ], // Allow your Frontend URL
     methods: ["GET", "POST", "PUT", "DELETE"], // Allow these HTTP methods
     allowedHeaders: ["Content-Type", "Authorization"], // Allow these headers
