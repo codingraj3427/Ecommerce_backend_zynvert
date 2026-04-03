@@ -6,6 +6,7 @@ const verifyToken = require("../middlewares/authMiddleware");
 const verifyAdmin = require("../middlewares/adminMiddleware");
 const auditLogger = require("../middlewares/auditLogMiddleware");
 const adminAnalyticsController = require("../controllers/adminAnalyticsController");
+const adminInvoiceController = require("../controllers/adminInvoiceController");
 const upload = require("../middlewares/upload");
 const adminReviewController = require("../controllers/adminReviewController");
 
@@ -150,6 +151,24 @@ router.put(
   "/orders/:id/cancel",
   auditLogger("CANCEL_ORDER"), // Great place to use your audit logger!
   adminController.cancelOrder,
+);
+
+
+// ==========================
+// INVOICES & BILLING
+// ==========================
+// ==========================
+// INVOICES & BILLING
+// ==========================
+
+// 1. Get all invoices (Both E-commerce and Manual)
+router.get("/invoices", adminInvoiceController.getAllInvoices);
+
+// 2. Create a Manual POS/Walk-in Invoice
+router.post(
+  "/invoices/manual", 
+  auditLogger("CREATE_MANUAL_INVOICE"), 
+  adminInvoiceController.createManualInvoice
 );
 
 module.exports = router;

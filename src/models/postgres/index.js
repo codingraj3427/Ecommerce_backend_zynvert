@@ -257,6 +257,60 @@ const Coupon = sequelize.define(
   { tableName: "coupons", timestamps: true },
 );
 
+const Invoice = sequelize.define("Invoice", {
+  invoice_id: {
+    type: DataTypes.UUID,
+    defaultValue: DataTypes.UUIDV4,
+    primaryKey: true,
+  },
+  invoice_number: {
+    type: DataTypes.STRING,
+    unique: true,
+    allowNull: false,
+  },
+  invoice_type: {
+    type: DataTypes.ENUM("ECOMMERCE", "MANUAL"),
+    defaultValue: "ECOMMERCE",
+    allowNull: false,
+  },
+  order_id: {
+    type: DataTypes.STRING,
+    allowNull: true, // Nullable for walk-in manual bills
+  },
+  user_id: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
+  // Snapshotted Customer Details
+  customer_name: { type: DataTypes.STRING, allowNull: false },
+  customer_phone: { type: DataTypes.STRING, allowNull: true },
+  billing_address: { type: DataTypes.TEXT, allowNull: true },
+  place_of_supply: { type: DataTypes.STRING, allowNull: true },
+
+  // Snapshotted Financials
+  total_taxable_value: { type: DataTypes.DECIMAL(10, 2), allowNull: false },
+  total_cgst: { type: DataTypes.DECIMAL(10, 2), allowNull: false },
+  total_sgst: { type: DataTypes.DECIMAL(10, 2), allowNull: false },
+  shipping_fee: { type: DataTypes.DECIMAL(10, 2), defaultValue: 0 },
+  discount_amount: { type: DataTypes.DECIMAL(10, 2), defaultValue: 0 },
+  grand_total: { type: DataTypes.DECIMAL(10, 2), allowNull: false },
+
+  // 🌟 IMMUTABLE ITEMS ARRAY
+  items: {
+    type: DataTypes.JSONB,
+    allowNull: false,
+  },
+
+  invoice_date: {
+    type: DataTypes.DATE,
+    defaultValue: DataTypes.NOW,
+  },
+  status: {
+    type: DataTypes.ENUM("GENERATED", "CANCELLED", "REFUNDED"),
+    defaultValue: "GENERATED",
+  },
+});
+
 /* =========================
    RELATIONSHIPS
 ========================= */
@@ -325,4 +379,5 @@ module.exports = {
   Payment,
   Favourite,
   Coupon,
+  Invoice,
 };
