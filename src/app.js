@@ -17,6 +17,7 @@ const reviewRoutes = require("./routes/reviewRoute");
 const campaignRoutes = require("./routes/campaignRoute");
 const favouriteRoutes = require("./routes/favouriteRoute");
 const couponRoutes = require("./routes/couponRoutes");
+const pincodeRoutes = require("./routes/pincode");
 
 const app = express();
 
@@ -59,6 +60,7 @@ app.use("/api/reviews", reviewRoutes);
 app.use("/api/admin/campaign", campaignRoutes);
 app.use("/api/favourites", favouriteRoutes);
 app.use("/api/coupons", couponRoutes);
+app.use("/api/pincode", pincodeRoutes);
 
 // ====================================================================
 // 2. ROUTES
