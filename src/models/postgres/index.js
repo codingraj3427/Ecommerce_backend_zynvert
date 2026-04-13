@@ -216,46 +216,83 @@ const Coupon = sequelize.define(
       primaryKey: true,
       autoIncrement: true,
     },
+
     code: {
       type: DataTypes.STRING(50),
       unique: true,
       allowNull: false,
+      set(value) {
+        this.setDataValue("code", value.toUpperCase()); // 🔥 auto uppercase
+      },
     },
+
     discount_type: {
       type: DataTypes.ENUM("percentage", "fixed"),
       allowNull: false,
     },
+
     discount_value: {
       type: DataTypes.DECIMAL(10, 2),
       allowNull: false,
     },
+
     min_order_value: {
       type: DataTypes.DECIMAL(10, 2),
       defaultValue: 0,
     },
+
     max_discount_amount: {
       type: DataTypes.DECIMAL(10, 2),
       allowNull: true,
     },
+
+    // 🔥 NEW: CATEGORY-BASED COUPONS
+    applicable_category_ids: {
+      type: DataTypes.JSON, // ["smart-li-ion-batteries", "scooty-batteries"]
+      allowNull: true, // NULL = applicable to ALL categories
+    },
+
+    // 🔥 OPTIONAL BUT VERY IMPORTANT FOR FUTURE
+    first_order_only: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    },
+
     is_active: {
       type: DataTypes.BOOLEAN,
       defaultValue: true,
     },
+
     usage_limit: {
       type: DataTypes.INTEGER,
-      allowNull: true, // If null, infinite uses available
+      allowNull: true, // NULL = unlimited usage
     },
+
     used_count: {
       type: DataTypes.INTEGER,
       defaultValue: 0,
     },
+
     expires_at: {
       type: DataTypes.DATE,
       allowNull: true,
     },
   },
-  { tableName: "coupons", timestamps: true },
+  {
+    tableName: "coupons",
+    timestamps: true,
+
+    // 🔥 INDEXES (IMPORTANT FOR PERFORMANCE)
+    indexes: [
+      {
+        unique: true,
+        fields: ["code"],
+      },
+    ],
+  },
 );
+
+module.exports = Coupon;
 
 const Invoice = sequelize.define("Invoice", {
   invoice_id: {
@@ -281,6 +318,7 @@ const Invoice = sequelize.define("Invoice", {
     type: DataTypes.STRING,
     allowNull: true,
   },
+
   // Snapshotted Customer Details
   customer_name: { type: DataTypes.STRING, allowNull: false },
   customer_phone: { type: DataTypes.STRING, allowNull: true },
@@ -310,6 +348,53 @@ const Invoice = sequelize.define("Invoice", {
     defaultValue: "GENERATED",
   },
 });
+
+/* =========================
+   12. Product Warranty Model
+========================= */
+const ProductWarranty = sequelize.define(
+  "ProductWarranty",
+  {
+    warranty_id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true,
+    },
+    serial_number: {
+      type: DataTypes.STRING(100),
+      unique: true,
+      allowNull: false,
+    },
+    product_id: {
+      type: DataTypes.STRING(128),
+      allowNull: true, // Optional, links to Inventory
+    },
+    product_name: {
+      type: DataTypes.STRING(255),
+      allowNull: false,
+    },
+    sku: {
+      type: DataTypes.STRING(100),
+      allowNull: false,
+    },
+    purchase_date: {
+      type: DataTypes.DATE,
+      allowNull: false,
+    },
+    warranty_start_date: {
+      type: DataTypes.DATE,
+      allowNull: false,
+    },
+    warranty_end_date: {
+      type: DataTypes.DATE,
+      allowNull: false,
+    },
+  },
+  { tableName: "product_warranties", timestamps: true },
+);
+
+// Add ProductWarranty to your module.exports at the bottom of the file:
+// module.exports = { ... , ProductWarranty };
 
 /* =========================
    RELATIONSHIPS
@@ -380,4 +465,5 @@ module.exports = {
   Favourite,
   Coupon,
   Invoice,
+  ProductWarranty, // ✅ ADD THIS
 };

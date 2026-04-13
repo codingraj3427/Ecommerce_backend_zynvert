@@ -171,4 +171,15 @@ router.post(
   adminInvoiceController.createManualInvoice
 );
 
+// ==========================
+// WARRANTY REGISTRATION
+// ==========================
+
+// ✅ NEW: Admin Register Warranty Route
+router.post(
+  "/warranty/register",
+  auditLogger("REGISTER_WARRANTY"),
+  adminController.registerWarranty
+);
+
 module.exports = router;

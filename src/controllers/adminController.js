@@ -9,6 +9,7 @@ const {
   User,
   OrderItem,
   Payment, // ✅ ADDED Payment
+  ProductWarranty, // 👈 MAKE SURE THIS IS IMPORTED HERE
 } = require("../models/postgres/index");
 const Product = require("../models/mongo/Product");
 const Category = require("../models/mongo/Category");
@@ -50,6 +51,7 @@ exports.createProduct = async (req, res) => {
       country_of_origin,
       product_dimension, // ✅ NEW
       product_weight, // ✅ NEW
+      is_visible, // ✅ NEW
     } = req.body;
 
     if (!category_id) {
@@ -149,6 +151,7 @@ exports.createProduct = async (req, res) => {
       images,
       technical_specs,
       display_flags,
+      is_visible: is_visible !== undefined ? Boolean(is_visible) : false,
     });
 
     await newProduct.save();
@@ -1000,14 +1003,77 @@ exports.cancelOrder = async (req, res) => {
         .json({ message: `Cannot cancel an order that is already ${status}.` });
     }
     if (error.message === "GATEWAY_REFUND_FAILED") {
-      return res
-        .status(500)
-        .json({
-          message: "Failed to process Razorpay refund. Order not cancelled.",
-        });
+      return res.status(500).json({
+        message: "Failed to process Razorpay refund. Order not cancelled.",
+      });
     }
 
     console.error("Admin Cancel Order Error:", error);
     res.status(500).json({ message: "Failed to cancel the order." });
+  }
+};
+
+// ==========================================
+// ✅ NEW: Admin Register Product Warranty
+// ==========================================
+// Inside src/controllers/adminController.js
+exports.registerWarranty = async (req, res) => {
+  try {
+    const {
+      serial_number,
+      product_id, // Now mandatory
+      product_name,
+      sku,
+      purchase_date,
+      warranty_start_date,
+      warranty_end_date,
+    } = req.body;
+
+    // ✅ UPDATED: product_id is now in the required list
+    if (
+      !serial_number ||
+      !product_id ||
+      !product_name ||
+      !sku ||
+      !purchase_date ||
+      !warranty_start_date ||
+      !warranty_end_date
+    ) {
+      return res.status(400).json({
+        message:
+          "Missing required fields. Please ensure SKU is selected to auto-fill Product ID and Name.",
+      });
+    }
+
+    const existingWarranty = await ProductWarranty.findOne({
+      where: { serial_number },
+    });
+
+    if (existingWarranty) {
+      return res.status(400).json({
+        message: "A warranty for this serial number is already registered.",
+      });
+    }
+
+    const newWarranty = await ProductWarranty.create({
+      serial_number,
+      product_id, // ✅ Saved directly
+      product_name,
+      sku,
+      purchase_date: new Date(purchase_date),
+      warranty_start_date: new Date(warranty_start_date),
+      warranty_end_date: new Date(warranty_end_date),
+    });
+
+    return res.status(201).json({
+      message: "Warranty registered successfully",
+      warranty: newWarranty,
+    });
+  } catch (error) {
+    console.error("registerWarranty error:", error);
+    return res.status(500).json({
+      message: "Failed to register warranty",
+      error: error.message,
+    });
   }
 };

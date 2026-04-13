@@ -17,7 +17,7 @@ const productSchema = new mongoose.Schema(
       required: true,
       unique: true,
       index: true,
-    }, 
+    },
 
     // ✅ ADDED SKU HERE
     sku: {
@@ -30,30 +30,30 @@ const productSchema = new mongoose.Schema(
       type: String,
       required: true,
       index: true,
-    }, 
+    },
 
     name: {
       type: String,
       required: true,
       trim: true,
-    }, 
+    },
 
     description: {
       type: String,
       required: true,
-    }, 
+    },
 
     stock_level: {
       type: Number,
       required: true,
       default: 0,
       min: 0,
-    }, 
+    },
 
     price_display: {
       type: Number,
       required: true,
-    }, 
+    },
 
     old_price: {
       type: Number,
@@ -65,22 +65,22 @@ const productSchema = new mongoose.Schema(
     base_price: {
       type: Number,
       required: true,
-      default: 0
-    }, 
+      default: 0,
+    },
     hsn_code: {
       type: String,
       required: true,
-      trim: true
-    }, 
+      trim: true,
+    },
     gst_rate: {
       type: Number,
       required: true,
-      default: 18
-    }, 
+      default: 18,
+    },
     country_of_origin: {
       type: String,
       required: true,
-      default: "India"
+      default: "India",
     },
 
     images: [
@@ -88,7 +88,7 @@ const productSchema = new mongoose.Schema(
         type: String,
         required: true,
       },
-    ], 
+    ],
 
     technical_specs: {
       type: Map,
@@ -99,9 +99,14 @@ const productSchema = new mongoose.Schema(
       {
         type: String,
       },
-    ], 
+    ],
+    is_visible: {
+      type: Boolean,
+      default: false,
+      index: true, // Indexed so the storefront can quickly filter visible products
+    },
 
-    reviews: [reviewSchema], 
+    reviews: [reviewSchema],
     average_rating: {
       type: Number,
       default: 0,
@@ -113,15 +118,15 @@ const productSchema = new mongoose.Schema(
     },
     product_dimension: {
       type: String, // e.g., "30x20x15 cm"
-      default: ""
+      default: "",
     },
     product_weight: {
       type: Number, // e.g., 15.5 (in kg)
-      default: 0
+      default: 0,
     },
   },
   {
-    timestamps: true, 
+    timestamps: true,
   },
 );
 
