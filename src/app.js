@@ -20,6 +20,7 @@ const couponRoutes = require("./routes/couponRoutes");
 const pincodeRoutes = require("./routes/pincode");
 // Inside server.js or app.js where your other routes are
 const warrantyRoutes = require("./routes/warrantyRoutes");
+const otpRoutes = require("./routes/otpRoutes");
 
 const app = express();
 
@@ -64,6 +65,7 @@ app.use("/api/favourites", favouriteRoutes);
 app.use("/api/coupons", couponRoutes);
 app.use("/api/pincode", pincodeRoutes);
 app.use("/api/warranty", warrantyRoutes);
+app.use("/api/otp", otpRoutes);
 
 // ====================================================================
 // 2. ROUTES
