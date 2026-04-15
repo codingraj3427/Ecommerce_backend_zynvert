@@ -1,7 +1,7 @@
 const User = require("../models/postgres/User");
 
 exports.syncUser = async (req, res) => {
-  // 1. Data from Firebase Middleware (Decoded Token)
+  // 1. Data from Firebase Middleware
   const {
     uid,
     email: tokenEmail,
@@ -9,17 +9,16 @@ exports.syncUser = async (req, res) => {
     phone_number: tokenPhone,
   } = req.user;
 
-  // 2. Data explicitly sent from React (e.g., when linking a phone number)
+  // 2. Data explicitly sent from React (Profile Form)
   const { firstName, lastName, phone, email: bodyEmail } = req.body;
 
-  // 3. Determine final values (Explicit body data overrides token data)
-  const finalEmail = bodyEmail || tokenEmail || null;
+  // 3. THE FIX: Provide a placeholder email for Phone Auth so Postgres doesn't crash
+  const finalEmail = bodyEmail || tokenEmail || `${uid}@pending.zynventics.com`;
   const finalPhone = phone || tokenPhone || null;
 
   let finalFirstName = firstName;
   let finalLastName = lastName;
 
-  // Parse Google Display Name if no explicit names are provided
   if (!finalFirstName && tokenName) {
     const parts = tokenName.split(" ");
     finalFirstName = parts[0];
@@ -38,7 +37,7 @@ exports.syncUser = async (req, res) => {
       },
     });
 
-    // 5. If user exists, update fields if they just verified them (Profile Completion)
+    // 5. Update fields if they submitted the Profile Completion form
     let wasUpdated = false;
     if (!created) {
       if (finalFirstName && user.first_name !== finalFirstName) {
@@ -53,18 +52,22 @@ exports.syncUser = async (req, res) => {
         user.phone_number = finalPhone;
         wasUpdated = true;
       }
-      if (finalEmail && user.email !== finalEmail) {
-        user.email = finalEmail;
+      // Overwrite the placeholder email with their real email once submitted
+      if (bodyEmail && user.email !== bodyEmail) {
+        user.email = bodyEmail;
         wasUpdated = true;
       }
 
       if (wasUpdated) await user.save();
     }
 
-    // 6. Completeness Check (Tell React what UI to show)
+    // 6. THE FIX: Tell React the profile is incomplete if they have the placeholder email
     const missingFields = [];
-    if (!user.email) missingFields.push("email");
-    if (!user.phone_number) missingFields.push("phone_number");
+    if (!user.email || user.email.includes("@pending.zynventics.com")) {
+      missingFields.push("email");
+    }
+    if (!user.first_name) missingFields.push("first_name");
+    if (!user.last_name) missingFields.push("last_name");
 
     const isProfileComplete = missingFields.length === 0;
 
