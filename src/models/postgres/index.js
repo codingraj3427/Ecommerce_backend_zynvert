@@ -11,7 +11,7 @@ const User = sequelize.define(
     email: { type: DataTypes.STRING(255), unique: true, allowNull: false },
     first_name: DataTypes.STRING(100),
     last_name: DataTypes.STRING(100),
-    phone_number: DataTypes.STRING(20),
+    phone_number: { type: DataTypes.STRING(20), unique: true, allowNull: true },
     is_admin: { type: DataTypes.BOOLEAN, defaultValue: false },
   },
   { tableName: "users", timestamps: true },
