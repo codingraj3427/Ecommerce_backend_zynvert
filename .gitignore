@@ -1,8 +1,8 @@
-node_modules,
-firebase-service-account.json,
-dist,
-.env,
-.DS_Store,
-.vscode,
-.idea,
-.vercel,
+node_modules/
+firebase-service-account.json
+dist
+.env
+.DS_Store
+.vscode
+.idea
+.vercel
