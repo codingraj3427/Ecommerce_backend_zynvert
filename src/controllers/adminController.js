@@ -10,6 +10,7 @@ const {
   OrderItem,
   Payment, // ✅ ADDED Payment
   ProductWarranty, // 👈 MAKE SURE THIS IS IMPORTED HERE
+  RestockRequest // 👈 ADD THIS LINE RIGHT HERE
 } = require("../models/postgres/index");
 const Product = require("../models/mongo/Product");
 const Category = require("../models/mongo/Category");
@@ -1073,6 +1074,81 @@ exports.registerWarranty = async (req, res) => {
     console.error("registerWarranty error:", error);
     return res.status(500).json({
       message: "Failed to register warranty",
+      error: error.message,
+    });
+  }
+};
+
+// ==========================================
+// ✅ NEW: Fetch all Restock Requests
+// ==========================================
+exports.getAllRestockRequests = async (req, res) => {
+  try {
+    const { status } = req.query; // e.g. ?status=pending
+
+    const whereClause = {};
+    if (status) {
+      whereClause.status = status;
+    }
+
+    const requests = await RestockRequest.findAll({
+      where: whereClause,
+      order: [["createdAt", "DESC"]],
+      // Optional: If you linked Inventory, you can include it to show current stock
+      // include: [{ model: Inventory, attributes: ['stock_level', 'sku'] }]
+    });
+
+    res.status(200).json({
+      success: true,
+      data: requests,
+    });
+  } catch (error) {
+    console.error("Error fetching restock requests:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to load restock requests",
+      error: error.message,
+    });
+  }
+};
+
+// ==========================================
+// ✅ NEW: Update Restock Request Status (e.g. mark as notified)
+// ==========================================
+exports.updateRestockRequestStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body; 
+
+    if (!["pending", "notified"].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid status. Must be 'pending' or 'notified'.",
+      });
+    }
+
+    const request = await RestockRequest.findByPk(id);
+
+    if (!request) {
+      return res.status(404).json({
+        success: false,
+        message: "Restock request not found.",
+      });
+    }
+
+    request.status = status;
+    await request.save();
+
+    res.status(200).json({
+      success: true,
+      message: `Restock request marked as ${status}.`,
+      data: request,
+    });
+  } catch (error) {
+    console.error("Error updating restock request:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to update restock request.",
       error: error.message,
     });
   }

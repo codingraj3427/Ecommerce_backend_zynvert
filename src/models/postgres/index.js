@@ -206,7 +206,7 @@ const Favourite = sequelize.define(
 );
 
 /* =========================
-   10. Coupon Model (NEW)
+   10. Coupon Model
 ========================= */
 const Coupon = sequelize.define(
   "Coupon",
@@ -222,7 +222,7 @@ const Coupon = sequelize.define(
       unique: true,
       allowNull: false,
       set(value) {
-        this.setDataValue("code", value.toUpperCase()); // 🔥 auto uppercase
+        this.setDataValue("code", value.toUpperCase());
       },
     },
 
@@ -246,13 +246,11 @@ const Coupon = sequelize.define(
       allowNull: true,
     },
 
-    // 🔥 NEW: CATEGORY-BASED COUPONS
     applicable_category_ids: {
-      type: DataTypes.JSON, // ["smart-li-ion-batteries", "scooty-batteries"]
-      allowNull: true, // NULL = applicable to ALL categories
+      type: DataTypes.JSON, 
+      allowNull: true, 
     },
 
-    // 🔥 OPTIONAL BUT VERY IMPORTANT FOR FUTURE
     first_order_only: {
       type: DataTypes.BOOLEAN,
       defaultValue: false,
@@ -265,7 +263,7 @@ const Coupon = sequelize.define(
 
     usage_limit: {
       type: DataTypes.INTEGER,
-      allowNull: true, // NULL = unlimited usage
+      allowNull: true, 
     },
 
     used_count: {
@@ -281,8 +279,6 @@ const Coupon = sequelize.define(
   {
     tableName: "coupons",
     timestamps: true,
-
-    // 🔥 INDEXES (IMPORTANT FOR PERFORMANCE)
     indexes: [
       {
         unique: true,
@@ -292,8 +288,9 @@ const Coupon = sequelize.define(
   },
 );
 
-module.exports = Coupon;
-
+/* =========================
+   11. Invoice Model
+========================= */
 const Invoice = sequelize.define("Invoice", {
   invoice_id: {
     type: DataTypes.UUID,
@@ -312,20 +309,18 @@ const Invoice = sequelize.define("Invoice", {
   },
   order_id: {
     type: DataTypes.STRING,
-    allowNull: true, // Nullable for walk-in manual bills
+    allowNull: true, 
   },
   user_id: {
     type: DataTypes.STRING,
     allowNull: true,
   },
 
-  // Snapshotted Customer Details
   customer_name: { type: DataTypes.STRING, allowNull: false },
   customer_phone: { type: DataTypes.STRING, allowNull: true },
   billing_address: { type: DataTypes.TEXT, allowNull: true },
   place_of_supply: { type: DataTypes.STRING, allowNull: true },
 
-  // Snapshotted Financials
   total_taxable_value: { type: DataTypes.DECIMAL(10, 2), allowNull: false },
   total_cgst: { type: DataTypes.DECIMAL(10, 2), allowNull: false },
   total_sgst: { type: DataTypes.DECIMAL(10, 2), allowNull: false },
@@ -333,7 +328,6 @@ const Invoice = sequelize.define("Invoice", {
   discount_amount: { type: DataTypes.DECIMAL(10, 2), defaultValue: 0 },
   grand_total: { type: DataTypes.DECIMAL(10, 2), allowNull: false },
 
-  // 🌟 IMMUTABLE ITEMS ARRAY
   items: {
     type: DataTypes.JSONB,
     allowNull: false,
@@ -367,7 +361,7 @@ const ProductWarranty = sequelize.define(
     },
     product_id: {
       type: DataTypes.STRING(128),
-      allowNull: true, // Optional, links to Inventory
+      allowNull: true, 
     },
     product_name: {
       type: DataTypes.STRING(255),
@@ -393,8 +387,39 @@ const ProductWarranty = sequelize.define(
   { tableName: "product_warranties", timestamps: true },
 );
 
-// Add ProductWarranty to your module.exports at the bottom of the file:
-// module.exports = { ... , ProductWarranty };
+/* =========================
+   13. Restock Request Model (NEW)
+========================= */
+const RestockRequest = sequelize.define(
+  "RestockRequest",
+  {
+    request_id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true,
+    },
+    product_id: {
+      type: DataTypes.STRING(128),
+      allowNull: false,
+    },
+    product_name: {
+      type: DataTypes.STRING(255),
+      allowNull: true,
+    },
+    email: {
+      type: DataTypes.STRING(255),
+      allowNull: false,
+      validate: {
+        isEmail: true,
+      },
+    },
+    status: {
+      type: DataTypes.ENUM("pending", "notified"),
+      defaultValue: "pending",
+    },
+  },
+  { tableName: "restock_requests", timestamps: true },
+);
 
 /* =========================
    RELATIONSHIPS
@@ -448,12 +473,23 @@ Favourite.belongsTo(Inventory, {
   targetKey: "product_id",
 });
 
-// ✅ NEW COUPON RELATIONSHIPS
 Coupon.hasMany(Order, { foreignKey: "coupon_id" });
 Order.belongsTo(Coupon, { foreignKey: "coupon_id" });
 
+// Optional but good practice: Link Restock Requests to Inventory
+Inventory.hasMany(RestockRequest, {
+  foreignKey: "product_id",
+  sourceKey: "product_id",
+  onDelete: "CASCADE",
+});
+RestockRequest.belongsTo(Inventory, {
+  foreignKey: "product_id",
+  targetKey: "product_id",
+});
+
+
 module.exports = {
-  sequelize, // 👈 ADD THIS LINE RIGHT HERE
+  sequelize,
   User,
   Address,
   Inventory,
@@ -465,5 +501,6 @@ module.exports = {
   Favourite,
   Coupon,
   Invoice,
-  ProductWarranty, // ✅ ADD THIS
+  ProductWarranty,
+  RestockRequest, // ✅ ADDED HERE
 };

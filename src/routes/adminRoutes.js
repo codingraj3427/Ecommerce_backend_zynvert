@@ -153,7 +153,6 @@ router.put(
   adminController.cancelOrder,
 );
 
-
 // ==========================
 // INVOICES & BILLING
 // ==========================
@@ -166,9 +165,9 @@ router.get("/invoices", adminInvoiceController.getAllInvoices);
 
 // 2. Create a Manual POS/Walk-in Invoice
 router.post(
-  "/invoices/manual", 
-  auditLogger("CREATE_MANUAL_INVOICE"), 
-  adminInvoiceController.createManualInvoice
+  "/invoices/manual",
+  auditLogger("CREATE_MANUAL_INVOICE"),
+  adminInvoiceController.createManualInvoice,
 );
 
 // ==========================
@@ -179,7 +178,13 @@ router.post(
 router.post(
   "/warranty/register",
   auditLogger("REGISTER_WARRANTY"),
-  adminController.registerWarranty
+  adminController.registerWarranty,
+);
+
+router.get("/restock-requests", adminController.getAllRestockRequests);
+router.patch(
+  "/restock-requests/:id/status",
+  adminController.updateRestockRequestStatus,
 );
 
 module.exports = router;

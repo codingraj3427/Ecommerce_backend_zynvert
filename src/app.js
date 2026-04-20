@@ -21,6 +21,8 @@ const pincodeRoutes = require("./routes/pincode");
 // Inside server.js or app.js where your other routes are
 const warrantyRoutes = require("./routes/warrantyRoutes");
 const otpRoutes = require("./routes/otpRoutes");
+const notificationRoutes = require("./routes/notificationRoutes");
+
 
 const app = express();
 
@@ -33,7 +35,7 @@ app.use(
   cors({
     origin: [
       "http://localhost:3000",
-      "http://192.168.1.13:3000",
+      "http://192.168.1.3:3000",
       "https://zynvert-technologies.netlify.app",
       "https://zynventics.com",
     ], // Allow your Frontend URL
@@ -66,6 +68,7 @@ app.use("/api/coupons", couponRoutes);
 app.use("/api/pincode", pincodeRoutes);
 app.use("/api/warranty", warrantyRoutes);
 app.use("/api/otp", otpRoutes);
+app.use("/api/notifications", notificationRoutes);
 
 // ====================================================================
 // 2. ROUTES
