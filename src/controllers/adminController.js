@@ -1,5 +1,5 @@
 // src/controllers/adminController.js
-
+const axios = require("axios");
 const { sequelize } = require("../config/db.postgres");
 const { Op, fn, col, literal } = require("sequelize");
 
@@ -10,7 +10,7 @@ const {
   OrderItem,
   Payment, // ✅ ADDED Payment
   ProductWarranty, // 👈 MAKE SURE THIS IS IMPORTED HERE
-  RestockRequest // 👈 ADD THIS LINE RIGHT HERE
+  RestockRequest, // 👈 ADD THIS LINE RIGHT HERE
 } = require("../models/postgres/index");
 const Product = require("../models/mongo/Product");
 const Category = require("../models/mongo/Category");
@@ -881,48 +881,119 @@ exports.deleteProductImage = async (req, res) => {
 };
 
 // 14. Generate AWB & Assign Courier (100% ISOLATED TEST MODE)
+// 14. Create Order in Shiprocket Dashboard (Manual Courier Assignment)
 exports.generateAWB = async (req, res) => {
   try {
     const { id } = req.params;
     const { weight, length, width, height } = req.body;
 
+    // Dimensions are strictly required by Shiprocket
     if (!weight || !length || !width || !height) {
-      return res
-        .status(400)
-        .json({ message: "Package dimensions and weight are required." });
+      return res.status(400).json({
+        message: "Package dimensions (L, W, H) and weight are required.",
+      });
     }
 
-    const order = await Order.findOne({ where: { order_id: id } });
+    // 1. Fetch full order and user details from PostgreSQL
+    const order = await Order.findOne({
+      where: { order_id: id },
+      include: [
+        {
+          model: User,
+          attributes: ["email", "first_name", "last_name", "phone_number"],
+        },
+        {
+          model: OrderItem,
+          attributes: ["product_id", "quantity", "unit_price"],
+          include: [
+            {
+              model: Inventory,
+              attributes: ["name", "sku", "hsn_code"],
+            },
+          ],
+        },
+      ],
+    });
+
     if (!order) return res.status(404).json({ message: "Order not found" });
 
-    const srResponse = {
-      data: {
-        awb_code: "AWB" + Math.floor(Math.random() * 1000000000),
-        courier_name: "Test Courier (Delhivery)",
+    // 2. Authenticate with Shiprocket
+    const authResponse = await axios.post(
+      "https://apiv2.shiprocket.in/v1/external/auth/login",
+      {
+        email: process.env.SHIPROCKET_EMAIL,
+        password: process.env.SHIPROCKET_PASSWORD,
       },
+    );
+    const token = authResponse.data.token;
+
+    // 3. Format Date for Shiprocket (YYYY-MM-DD HH:MM)
+    const orderDate = new Date(order.createdAt)
+      .toISOString()
+      .replace(/T/, " ")
+      .replace(/\..+/, "");
+
+    // 4. Prepare Order Items
+    const orderItems = order.OrderItems.map((item) => ({
+      name: item.Inventory?.name || "Zynvert Product",
+      sku: item.Inventory?.sku || item.product_id,
+      units: item.quantity,
+      selling_price: item.unit_price,
+      hsn: item.Inventory?.hsn_code || "85076000",
+    }));
+
+    // 5. Prepare Shiprocket Payload
+    const orderPayload = {
+      order_id: order.order_id,
+      order_date: orderDate,
+      pickup_location: process.env.SHIPROCKET_PICKUP_LOCATION,
+      billing_customer_name: order.shipping_name || order.User.first_name,
+      billing_last_name: order.User.last_name || "",
+      billing_address: order.shipping_line1,
+      billing_address_2: order.shipping_line2 || "",
+      billing_city: order.shipping_city,
+      billing_pincode: order.shipping_pincode || "000000", // Update with your actual DB column
+      billing_state: order.shipping_state || "West Bengal", // Update with your actual DB column
+      billing_country: "India",
+      billing_email: order.User.email,
+      billing_phone:
+        order.User.phone_number || order.shipping_phone || "9999999999",
+      shipping_is_billing: true,
+      order_items: orderItems,
+      payment_method: order.payment_method === "COD" ? "COD" : "Prepaid",
+      sub_total: order.total_amount,
+      length: length,
+      breadth: width,
+      height: height,
+      weight: weight,
     };
 
-    if (srResponse.data && srResponse.data.awb_code) {
-      order.tracking_number = srResponse.data.awb_code;
-      order.carrier_name = srResponse.data.courier_name;
-      order.tracking_url = `https://shiprocket.co/tracking/${srResponse.data.awb_code}`;
-      order.status = "Shipped";
+    // 6. Push Order to Shiprocket
+    const srOrderResponse = await axios.post(
+      "https://apiv2.shiprocket.in/v1/external/orders/create/adhoc",
+      orderPayload,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
 
-      await order.save();
+    // 7. Update Local Database (Optional: Change status to 'Processing' to indicate it's in Shiprocket)
+    order.status = "Processing";
+    await order.save();
 
-      return res.json({
-        message: "TEST MODE: AWB Generated Successfully",
-        order,
-        shiprocket_response: srResponse.data,
-      });
-    } else {
-      throw new Error("Shiprocket did not return an AWB code.");
-    }
+    // Return success to the frontend
+    return res.json({
+      message: "Order successfully pushed to Shiprocket dashboard.",
+      shiprocket_order_id: srOrderResponse.data.order_id,
+      shiprocket_shipment_id: srOrderResponse.data.shipment_id,
+      shiprocket_response: srOrderResponse.data,
+    });
   } catch (error) {
-    console.error("Test API Error:", error.message);
+    const errorDetails = error.response?.data || error.message;
+    console.error("Shiprocket API Error:", errorDetails);
+
     res.status(500).json({
-      message: "Failed to generate test AWB",
-      error: error.message,
+      message: "Failed to push order to Shiprocket",
+      error: error.response?.data?.message || error.message,
+      details: errorDetails,
     });
   }
 };
@@ -1118,7 +1189,7 @@ exports.getAllRestockRequests = async (req, res) => {
 exports.updateRestockRequestStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const { status } = req.body; 
+    const { status } = req.body;
 
     if (!["pending", "notified"].includes(status)) {
       return res.status(400).json({
