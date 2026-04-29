@@ -72,4 +72,14 @@ module.exports = [
     is_popular: false,
     sort_order: 8,
   },
+
+  {
+    category_id: "battery-chargers",
+    name: "Battery Chargers",
+    short_label: "Charger",
+    color_hex: "#27a4e3ff",
+    icon_url: "",
+    is_popular: false,
+    sort_order: 9,
+  },
 ];

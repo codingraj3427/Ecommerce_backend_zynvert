@@ -1,4 +1,5 @@
 require("dotenv").config();
+const { trusted } = require("mongoose");
 const app = require("./src/app");
 const connectMongoDB = require("./src/config/db.mongo");
 const { connectDB, sequelize } = require("./src/config/db.postgres");
@@ -20,7 +21,7 @@ const startServer = async () => {
     // It will ONLY run if you have SYNC_SCHEMA=true in your .env file
     if (process.env.SYNC_SCHEMA === "true") {
       console.log("🔄 Syncing Database Schema with Supabase...");
-      await sequelize.sync({ alter: true }); // You can leave this as true when you actually want to sync
+      await sequelize.sync(true); // You can leave this as true when you actually want to sync
       console.log("✅ Supabase Tables Synced Successfully");
     } else {
       console.log("⏩ Skipping database sync for ultra-fast startup.");

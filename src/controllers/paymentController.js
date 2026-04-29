@@ -23,14 +23,13 @@ const Product = require("../models/mongo/Product");
 // ✅ IMPORT THE INVOICE HELPER WE CREATED
 const { generateNextInvoiceNumber } = require("../utils/invoiceHelper");
 
-
 /* ============================================================
    1. CREATE CHECKOUT SESSION (ONLINE PAYMENT)
    ============================================================ */
 exports.createCheckoutSession = async (req, res) => {
   try {
     const userId = req.user.uid;
-    const { shippingAddress, shippingFee = 0, couponCode } = req.body; 
+    const { shippingAddress, shippingFee = 0, couponCode } = req.body;
 
     if (!shippingAddress) {
       return res.status(400).json({ message: "Shipping address missing" });
@@ -40,7 +39,8 @@ exports.createCheckoutSession = async (req, res) => {
 
     if (!user || !user.phone_number) {
       return res.status(400).json({
-        message: "Phone number is required. Please update your profile and try again.",
+        message:
+          "Phone number is required. Please update your profile and try again.",
       });
     }
 
@@ -62,18 +62,23 @@ exports.createCheckoutSession = async (req, res) => {
     let appliedCouponId = null;
 
     if (couponCode) {
-      const coupon = await Coupon.findOne({ where: { code: couponCode.toUpperCase(), is_active: true } });
-      
+      const coupon = await Coupon.findOne({
+        where: { code: couponCode.toUpperCase(), is_active: true },
+      });
+
       if (coupon && itemsTotal >= Number(coupon.min_order_value)) {
-        if (coupon.discount_type === 'percentage') {
+        if (coupon.discount_type === "percentage") {
           discountAmount = (itemsTotal * Number(coupon.discount_value)) / 100;
           if (coupon.max_discount_amount) {
-            discountAmount = Math.min(discountAmount, Number(coupon.max_discount_amount));
+            discountAmount = Math.min(
+              discountAmount,
+              Number(coupon.max_discount_amount),
+            );
           }
         } else {
           discountAmount = Number(coupon.discount_value);
         }
-        
+
         discountAmount = Math.min(discountAmount, itemsTotal);
         appliedCouponId = coupon.coupon_id;
       }
@@ -96,14 +101,16 @@ exports.createCheckoutSession = async (req, res) => {
       payment_method: "ONLINE",
     });
 
+    await order.reload();
+
     for (const item of cart.CartItems) {
       await OrderItem.create({
         order_id: order.order_id,
         product_id: item.product_id,
         quantity: item.quantity,
         unit_price: Number(item.Inventory.current_price),
-        hsn_code: item.Inventory.hsn_code || "85076000", 
-        gst_rate: Number(item.Inventory.gst_rate) || 18, 
+        hsn_code: item.Inventory.hsn_code || "85076000",
+        gst_rate: Number(item.Inventory.gst_rate) || 18,
       });
     }
 
@@ -120,6 +127,7 @@ exports.createCheckoutSession = async (req, res) => {
     res.json({
       razorpayOrderId: razorpayOrder.id,
       orderId: order.order_id,
+      orderNumber: order.order_number,
       amount: razorpayOrder.amount,
     });
   } catch (err) {
@@ -152,41 +160,48 @@ exports.confirmPayment = async (req, res) => {
       // Fetch items including Inventory to get Name, SKU, and Tax rules
       const orderItems = await OrderItem.findAll({
         where: { order_id: orderId },
-        include: [{ model: Inventory }]
+        include: [{ model: Inventory }],
       });
 
       let itemsTotalAmount = 0;
 
       // 1. Update Inventory Stock
       for (const item of orderItems) {
-        itemsTotalAmount += (Number(item.quantity) * Number(item.unit_price));
+        itemsTotalAmount += Number(item.quantity) * Number(item.unit_price);
 
         const inventoryItem = await Inventory.findOne({
           where: { product_id: item.product_id },
         });
 
         if (inventoryItem) {
-          inventoryItem.stock_level = Math.max(0, inventoryItem.stock_level - item.quantity);
+          inventoryItem.stock_level = Math.max(
+            0,
+            inventoryItem.stock_level - item.quantity,
+          );
           await inventoryItem.save();
 
           await Product.findOneAndUpdate(
             { product_id: item.product_id },
-            { $set: { stock_level: inventoryItem.stock_level } }
+            { $set: { stock_level: inventoryItem.stock_level } },
           );
         }
       }
 
       // 🌟 2. AUTO-GENERATE OFFICIAL INVOICE 🌟
       try {
-        let totalTaxable = 0, totalCGST = 0, totalSGST = 0;
+        let totalTaxable = 0,
+          totalCGST = 0,
+          totalSGST = 0;
 
-        const invoiceItems = orderItems.map(item => {
+        const invoiceItems = orderItems.map((item) => {
           const qty = Number(item.quantity);
           const priceIncl = Number(item.unit_price);
-          const gstRate = Number(item.gst_rate || item.Inventory?.gst_rate || 18);
-          
+          const gstRate = Number(
+            item.gst_rate || item.Inventory?.gst_rate || 18,
+          );
+
           const taxable = (priceIncl * qty) / (1 + gstRate / 100);
-          const gstAmt = (priceIncl * qty) - taxable;
+          const gstAmt = priceIncl * qty - taxable;
 
           totalTaxable += taxable;
           totalCGST += gstAmt / 2;
@@ -202,13 +217,14 @@ exports.confirmPayment = async (req, res) => {
             taxable: taxable.toFixed(2),
             cgst: (gstAmt / 2).toFixed(2),
             sgst: (gstAmt / 2).toFixed(2),
-            total: (priceIncl * qty).toFixed(2)
+            total: (priceIncl * qty).toFixed(2),
           };
         });
 
         // Calculate Shipping Fee dynamically based on order total
         const discountVal = Number(order.discount_amount || 0);
-        const shippingFee = Number(order.total_amount) - itemsTotalAmount + discountVal;
+        const shippingFee =
+          Number(order.total_amount) - itemsTotalAmount + discountVal;
 
         if (shippingFee > 0) {
           const shipTaxable = shippingFee / 1.18;
@@ -236,11 +252,16 @@ exports.confirmPayment = async (req, res) => {
           discount_amount: discountVal.toFixed(2),
           grand_total: Number(order.total_amount).toFixed(2),
           items: invoiceItems,
-          status: "GENERATED"
+          status: "GENERATED",
         });
-        console.log(`[Billing] Invoice ${invoiceNumber} created for Order #${order.order_id}`);
+        console.log(
+          `[Billing] Invoice ${invoiceNumber} created for Order #${order.order_id}`,
+        );
       } catch (invErr) {
-        console.error("Failed to auto-generate Invoice for Online payment:", invErr);
+        console.error(
+          "Failed to auto-generate Invoice for Online payment:",
+          invErr,
+        );
       }
     }
 
@@ -256,7 +277,6 @@ exports.confirmPayment = async (req, res) => {
     res.status(500).json({ message: "Failed to confirm payment" });
   }
 };
-
 
 /* ============================================================
    3. CASH ON DELIVERY (WITH AUTO-INVOICE GENERATOR)
@@ -274,7 +294,8 @@ exports.placeCODOrder = async (req, res) => {
 
     if (!user || !user.phone_number) {
       return res.status(400).json({
-        message: "Phone number is required. Please update your profile and try again.",
+        message:
+          "Phone number is required. Please update your profile and try again.",
       });
     }
 
@@ -296,18 +317,23 @@ exports.placeCODOrder = async (req, res) => {
     let appliedCouponId = null;
 
     if (couponCode) {
-      const coupon = await Coupon.findOne({ where: { code: couponCode.toUpperCase(), is_active: true } });
-      
+      const coupon = await Coupon.findOne({
+        where: { code: couponCode.toUpperCase(), is_active: true },
+      });
+
       if (coupon && itemsTotal >= Number(coupon.min_order_value)) {
-        if (coupon.discount_type === 'percentage') {
+        if (coupon.discount_type === "percentage") {
           discountAmount = (itemsTotal * Number(coupon.discount_value)) / 100;
           if (coupon.max_discount_amount) {
-            discountAmount = Math.min(discountAmount, Number(coupon.max_discount_amount));
+            discountAmount = Math.min(
+              discountAmount,
+              Number(coupon.max_discount_amount),
+            );
           }
         } else {
           discountAmount = Number(coupon.discount_value);
         }
-        
+
         discountAmount = Math.min(discountAmount, itemsTotal);
         appliedCouponId = coupon.coupon_id;
       }
@@ -327,8 +353,11 @@ exports.placeCODOrder = async (req, res) => {
       coupon_id: appliedCouponId,
       total_amount: finalAmount,
       status: "COD",
-      payment_method: "COD"
+      payment_method: "COD",
     });
+
+    // 👇 1. ADD THIS LINE: Fetch the generated OD400001 from Supabase
+    await order.reload();
 
     for (const item of cart.CartItems) {
       const finalHsn = item.Inventory?.hsn_code || "85076000";
@@ -342,41 +371,46 @@ exports.placeCODOrder = async (req, res) => {
         hsn_code: finalHsn,
         gst_rate: finalGst,
       });
-      
+
       // Update Stock immediately for COD
       const inventoryItem = await Inventory.findOne({
         where: { product_id: item.product_id },
       });
 
       if (inventoryItem) {
-        inventoryItem.stock_level = Math.max(0, inventoryItem.stock_level - item.quantity);
+        inventoryItem.stock_level = Math.max(
+          0,
+          inventoryItem.stock_level - item.quantity,
+        );
         await inventoryItem.save();
 
         await Product.findOneAndUpdate(
           { product_id: item.product_id },
-          { $set: { stock_level: inventoryItem.stock_level } }
+          { $set: { stock_level: inventoryItem.stock_level } },
         );
       }
     }
 
     // 🌟 AUTO-GENERATE OFFICIAL INVOICE 🌟
     try {
-      let totalTaxable = 0, totalCGST = 0, totalSGST = 0;
+      let totalTaxable = 0,
+        totalCGST = 0,
+        totalSGST = 0;
 
-      const invoiceItems = cart.CartItems.map(item => {
+      const invoiceItems = cart.CartItems.map((item) => {
         const qty = Number(item.quantity);
         const priceIncl = Number(item.Inventory.current_price);
         const gstRate = Number(item.Inventory.gst_rate) || 18;
-        
+
         const taxable = (priceIncl * qty) / (1 + gstRate / 100);
-        const gstAmt = (priceIncl * qty) - taxable;
+        const gstAmt = priceIncl * qty - taxable;
 
         totalTaxable += taxable;
         totalCGST += gstAmt / 2;
         totalSGST += gstAmt / 2;
 
         return {
-          name: item.Inventory.name || "Zynvert Product",
+          name: item.Inventory.name || "Zynventics Product",
           sku: item.Inventory.sku || "N/A",
           hsn: item.Inventory.hsn_code || "85076000",
           qty: qty,
@@ -385,7 +419,7 @@ exports.placeCODOrder = async (req, res) => {
           taxable: taxable.toFixed(2),
           cgst: (gstAmt / 2).toFixed(2),
           sgst: (gstAmt / 2).toFixed(2),
-          total: (priceIncl * qty).toFixed(2)
+          total: (priceIncl * qty).toFixed(2),
         };
       });
 
@@ -403,7 +437,7 @@ exports.placeCODOrder = async (req, res) => {
       await Invoice.create({
         invoice_number: invoiceNumber,
         invoice_type: "ECOMMERCE",
-        order_id: String(order.order_id),
+        order_id: order.order_number || String(order.order_id),
         user_id: userId,
         customer_name: order.shipping_name,
         customer_phone: user.phone_number || "N/A",
@@ -416,16 +450,22 @@ exports.placeCODOrder = async (req, res) => {
         discount_amount: Number(discountAmount).toFixed(2),
         grand_total: Number(finalAmount).toFixed(2),
         items: invoiceItems,
-        status: "GENERATED"
+        status: "GENERATED",
       });
-      console.log(`[Billing] COD Invoice ${invoiceNumber} created for Order #${order.order_id}`);
+      console.log(
+        `[Billing] COD Invoice ${invoiceNumber} created for Order #${order.order_id}`,
+      );
     } catch (invErr) {
       console.error("Failed to auto-generate Invoice for COD order:", invErr);
     }
 
     await CartItem.destroy({ where: { cart_id: cart.cart_id } });
 
-    res.json({ success: true, orderId: order.order_id });
+    res.json({
+      success: true,
+      orderId: order.order_id,
+      orderNumber: order.order_number,
+    });
   } catch (err) {
     console.error("COD Order Error:", err);
     res.status(500).json({ message: "Failed to place COD order" });
@@ -437,28 +477,37 @@ exports.placeCODOrder = async (req, res) => {
    ============================================================ */
 exports.processRefund = async (orderId, amount, transaction) => {
   try {
-    const paymentRecord = await Payment.findOne({ 
-      where: { order_id: orderId, status: 'Success' },
-      transaction 
+    const paymentRecord = await Payment.findOne({
+      where: { order_id: orderId, status: "Success" },
+      transaction,
     });
 
     if (!paymentRecord) {
-      console.warn(`No successful payment record found for order ${orderId}. This might be a COD order or payment failed.`);
-      return false; 
+      console.warn(
+        `No successful payment record found for order ${orderId}. This might be a COD order or payment failed.`,
+      );
+      return false;
     }
 
     if (!paymentRecord.razorpay_payment_id) {
-       console.warn(`Payment record found for order ${orderId}, but no Razorpay payment ID is present.`);
-       return false;
+      console.warn(
+        `Payment record found for order ${orderId}, but no Razorpay payment ID is present.`,
+      );
+      return false;
     }
 
-    console.log(`[Gateway] Initiating refund of ₹${amount} for Razorpay Payment ID: ${paymentRecord.razorpay_payment_id}`);
-    
-    const refund = await razorpay.payments.refund(paymentRecord.razorpay_payment_id, {
-      amount: Math.round(amount * 100) 
-    });
+    console.log(
+      `[Gateway] Initiating refund of ₹${amount} for Razorpay Payment ID: ${paymentRecord.razorpay_payment_id}`,
+    );
 
-    paymentRecord.status = 'Refunded';
+    const refund = await razorpay.payments.refund(
+      paymentRecord.razorpay_payment_id,
+      {
+        amount: Math.round(amount * 100),
+      },
+    );
+
+    paymentRecord.status = "Refunded";
     await paymentRecord.save({ transaction });
 
     return true;

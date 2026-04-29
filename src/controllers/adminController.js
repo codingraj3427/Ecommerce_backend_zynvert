@@ -348,15 +348,18 @@ exports.getAllOrders = async (req, res) => {
 };
 
 // 6. Update Order Status (Shipping)
+// 6. Update Order Status (Shipping)
 exports.updateOrderStatus = async (req, res) => {
   try {
     const { id } = req.params;
+    // We are pulling all these fields from req.body now
     const { status, tracking_number, carrier_name, tracking_url } = req.body;
 
     const order = await Order.findByPk(id);
     if (!order) return res.status(404).json({ message: "Order not found" });
 
-    order.status = status;
+    // Update the fields if they exist in the payload
+    if (status) order.status = status;
     if (tracking_number) order.tracking_number = tracking_number;
     if (carrier_name) order.carrier_name = carrier_name;
     if (tracking_url) order.tracking_url = tracking_url;
@@ -364,6 +367,7 @@ exports.updateOrderStatus = async (req, res) => {
     await order.save();
     res.json({ message: "Order status updated", order });
   } catch (error) {
+    console.error("Update Order Status Error:", error); // <-- This will print the exact DB error next time!
     res.status(500).json({ message: error.message });
   }
 };
