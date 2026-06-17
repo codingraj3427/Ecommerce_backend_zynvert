@@ -312,9 +312,9 @@ const Invoice = sequelize.define("Invoice", {
     allowNull: false,
   },
   invoice_type: {
-    type: DataTypes.ENUM("ECOMMERCE", "MANUAL"),
-    defaultValue: "ECOMMERCE",
+    type: DataTypes.ENUM("MANUAL", "ONLINE", "B2B_MANUAL"), // Add it here
     allowNull: false,
+    defaultValue: "MANUAL",
   },
   order_id: {
     type: DataTypes.STRING,
@@ -349,6 +349,14 @@ const Invoice = sequelize.define("Invoice", {
   status: {
     type: DataTypes.ENUM("GENERATED", "CANCELLED", "REFUNDED"),
     defaultValue: "GENERATED",
+  },
+  company_name: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
+  customer_gstin: {
+    type: DataTypes.STRING(15), // GSTIN is exactly 15 chars
+    allowNull: true,
   },
 });
 
