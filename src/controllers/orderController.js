@@ -186,3 +186,45 @@ exports.cancelOrder = async (req, res) => {
       .json({ message: "Failed to cancel the order. Please try again." });
   }
 };
+
+
+/* ============================================================
+   4. MARK PAYMENT AS FAILED (NEW)
+   ============================================================ */
+exports.markPaymentFailed = async (req, res) => {
+  try {
+    const userId = req.user.uid;
+    const { id } = req.params;
+
+    // Find the order ensuring it belongs to the current user
+    const order = await Order.findOne({
+      where: {
+        order_id: id,
+        user_id: userId,
+      },
+    });
+
+    if (!order) {
+      return res.status(404).json({ message: "Order not found." });
+    }
+
+    // Safety check: Prevent changing the status if the payment actually went through 
+    // at the exact same millisecond via a webhook or delayed response
+    if (order.status === "Paid" || order.status === "Processing" || order.status === "Shipped") {
+      return res.status(400).json({ message: "Cannot mark as failed, order is already paid." });
+    }
+
+    // Update status to Payment Failed
+    order.status = "Payment Failed";
+    await order.save();
+
+    res.status(200).json({ 
+      message: "Order marked as Payment Failed successfully.",
+      order 
+    });
+
+  } catch (error) {
+    console.error("Mark Payment Failed Error:", error);
+    res.status(500).json({ message: "Failed to update order status." });
+  }
+};

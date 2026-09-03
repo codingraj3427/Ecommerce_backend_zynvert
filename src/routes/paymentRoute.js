@@ -10,8 +10,13 @@ router.post(
 );
 
 router.post("/cod", verifyToken, paymentController.placeCODOrder);
+// ✅ ADD THIS ROUTE:
+router.get("/emi-plans", paymentController.getEmiPlans);
 
 // ✅ Protect this route so req.user works
 router.post("/confirm", verifyToken, paymentController.confirmPayment);
+
+//For retry payment logic
+router.post("/:orderId/retry", verifyToken, paymentController.retryPayment);
 
 module.exports = router;

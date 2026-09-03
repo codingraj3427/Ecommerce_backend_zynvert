@@ -472,6 +472,54 @@ exports.placeCODOrder = async (req, res) => {
   }
 };
 
+// In paymentController.js
+exports.getEmiPlans = async (req, res) => {
+  try {
+    const { amount } = req.query;
+
+    // Explicitly grab the keys
+    const keyId = process.env.RAZORPAY_KEY_ID;
+    const keySecret = process.env.RAZORPAY_KEY_SECRET;
+
+    if (!keyId || !keySecret) {
+      console.error("❌ Razorpay keys missing in backend environment!");
+      return res.status(500).json({ error: "Server configuration error" });
+    }
+
+    if (!amount) {
+      return res.status(400).json({ error: "Amount is required" });
+    }
+
+    // Safely create the Basic Auth token
+    const authString = `${keyId}:${keySecret}`;
+    const encodedAuth = Buffer.from(authString).toString("base64");
+
+    const response = await fetch(
+      `https://api.razorpay.com/v1/methods?amount=${amount}&currency=INR`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Basic ${encodedAuth}`,
+          "Content-Type": "application/json",
+        },
+      },
+    );
+
+    if (!response.ok) {
+      console.error(
+        `❌ Razorpay API rejected request with status: ${response.status}`,
+      );
+      return res.status(response.status).json({ error: "Gateway rejection" });
+    }
+
+    const data = await response.json();
+    res.json(data);
+  } catch (err) {
+    console.error("Backend EMI Error:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+};
+
 /* ============================================================
    4. PROCESS REFUND (HELPER FUNCTION FOR ORDER CANCELLATION)
    ============================================================ */
@@ -514,5 +562,79 @@ exports.processRefund = async (orderId, amount, transaction) => {
   } catch (error) {
     console.error("Razorpay Refund Processing Error:", error);
     throw new Error("GATEWAY_REFUND_FAILED");
+  }
+};
+
+/* ============================================================
+   5. RETRY PAYMENT (FOR FAILED/PENDING ORDERS)
+   ============================================================ */
+exports.retryPayment = async (req, res) => {
+  try {
+    const userId = req.user.uid;
+    const { orderId } = req.params;
+
+    // 1. Fetch the existing order
+    const order = await Order.findOne({
+      where: { order_id: orderId, user_id: userId },
+    });
+
+    if (!order) {
+      return res.status(404).json({ message: "Order not found." });
+    }
+
+    // 2. Prevent retrying paid/shipped orders
+    if (
+      order.status !== "Pending Payment" &&
+      order.status !== "Payment Failed"
+    ) {
+      return res
+        .status(400)
+        .json({ message: "This order cannot be repaided." });
+    }
+
+    // 3. ENFORCE 3-MINUTE TIME LIMIT
+    const orderCreationTime = new Date(order.createdAt).getTime();
+    const currentTime = new Date().getTime();
+    const timeDifferenceMinutes =
+      (currentTime - orderCreationTime) / (1000 * 60);
+
+    if (timeDifferenceMinutes > 3) {
+      // It's too late. Auto-cancel the order.
+      order.status = "Cancelled";
+      order.cancellation_reason = "Payment timeout (exceeded 3 minutes)";
+      await order.save();
+
+      // Note: You should ideally restock inventory here just like your cancel route does
+
+      return res.status(400).json({
+        message:
+          "Payment time expired (3 minutes). This order has been cancelled.",
+        isExpired: true,
+      });
+    }
+
+    // 4. Generate a NEW Razorpay Order ID for the existing amount
+    const razorpayOrder = await razorpay.orders.create({
+      amount: Math.round(Number(order.total_amount) * 100),
+      currency: "INR",
+      receipt: `retry_${order.order_id}`,
+      notes: {
+        order_id: String(order.order_id),
+        user_id: userId,
+        is_retry: "true",
+      },
+    });
+
+    // 5. Send back the data needed to open the modal on the frontend
+    res.json({
+      razorpayOrderId: razorpayOrder.id,
+      orderId: order.order_id,
+      amount: razorpayOrder.amount,
+      shipping_name: order.shipping_name,
+      shipping_phone: order.shipping_phone,
+    });
+  } catch (error) {
+    console.error("Retry Payment Error:", error);
+    res.status(500).json({ message: "Failed to initiate payment retry." });
   }
 };

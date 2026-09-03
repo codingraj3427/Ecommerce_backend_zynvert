@@ -1,29 +1,50 @@
 const express = require("express");
 const router = express.Router();
-const { checkServiceability } = require("../services/shiprocketServices");
+
+const { checkServiceability } = require("../services/ekartServices");
 
 router.post("/check-pincode", async (req, res) => {
-  const { pincode, weight } = req.body;
+  try {
+    const pincode = req.body.pincode || req.body.destinationPincode;
 
-  if (!pincode || pincode.length !== 6) {
-    return res.json({
-      success: false,
-      message: "Invalid pincode",
-    });
-  }
+    const weight = req.body.weight || 0.5;
 
-  const result = await checkServiceability(pincode, weight);
+    if (!pincode || !/^\d{6}$/.test(pincode)) {
+      return res.status(400).json({
+        success: false,
+        serviceable: false,
+        message: "Invalid pincode",
+      });
+    }
 
-  if (result.success) {
+    const result = await checkServiceability(pincode, weight);
+    console.log(result);
+
+    if (!result.success) {
+      return res.status(500).json({
+        success: false,
+        serviceable: false,
+        message: "Delivery is currently unavailable to this location.",
+      });
+    }
+
     return res.json({
       success: true,
-      message: `Expected Delivery in ${result.eta}`,
+      serviceable: true,
+      message: `Delivery available to ${pincode}`,
+      estimatedDate: result.estimatedDate,
+      estimatedDays: result.estimatedDays,
       courier: result.courier,
+      district: result.district,
+      state: result.state,
     });
-  } else {
-    return res.json({
+  } catch (error) {
+    console.error("Pincode Check Error:", error.message);
+
+    return res.status(500).json({
       success: false,
-      message: "Delivery not available",
+      serviceable: false,
+      message: "Internal server error",
     });
   }
 });
